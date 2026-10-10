@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: mealsync-backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/mealsync?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: Meet@1209 # Change this to your MySQL password if different
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+server:
+  port: 8080
+
+jwt:
+  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  expiration: 86400000 # 24 hours

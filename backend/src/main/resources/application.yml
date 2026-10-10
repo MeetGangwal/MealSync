@@ -4,7 +4,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/mealsync?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: password # Change this to your MySQL password if different
+    password: Meet@1209 # Change this to your MySQL password if different
   jpa:
     hibernate:
       ddl-auto: update
