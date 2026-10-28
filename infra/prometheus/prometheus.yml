@@ -22,43 +22,21 @@ scrape_configs:
     static_configs:
       - targets: ['cadvisor:8080']
     metrics_path: /metrics
+    metric_relabel_configs:
+      # Keep machine-level series (no id, e.g. machine_memory_bytes), the host total ("/")
+      # and one series per MealSync service ("/mealsync/<service>"); drop nested
+      # per-container duplicates and unrelated host/WSL cgroups.
+      - source_labels: [id]
+        regex: '|/|/mealsync/[^/]+'
+        action: keep
+      - source_labels: [id]
+        regex: '/mealsync/([^/]+)'
+        target_label: service
+        replacement: '$1'
 
   # ── Spring Boot Actuator / Micrometer ──────────────────────────────────────
-  # STATUS: PENDING — Spring Boot Actuator + Micrometer Prometheus registry
-  # are NOT currently in pom.xml.
-  #
-  # Meet must add the following two dependencies to backend/pom.xml:
-  #
-  #   <dependency>
-  #     <groupId>org.springframework.boot</groupId>
-  #     <artifactId>spring-boot-starter-actuator</artifactId>
-  #   </dependency>
-  #   <dependency>
-  #     <groupId>io.micrometer</groupId>
-  #     <artifactId>micrometer-registry-prometheus</artifactId>
-  #     <scope>runtime</scope>
-  #   </dependency>
-  #
-  # And add to application.yml:
-  #
-  #   management:
-  #     endpoints:
-  #       web:
-  #         exposure:
-  #           include: health,prometheus
-  #         base-path: /actuator
-  #     endpoint:
-  #       health:
-  #         show-details: never
-  #     metrics:
-  #       export:
-  #         prometheus:
-  #           enabled: true
-  #
-  # Once done, uncomment this job:
-  #
-  # - job_name: mealsync-backend
-  #   metrics_path: /actuator/prometheus
-  #   static_configs:
-  #     - targets: ['backend:8080']
-  #   scrape_interval: 15s
+  # Internal management port 8081 (not published to the host).
+  - job_name: mealsync-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['backend:8081']

@@ -51,6 +51,9 @@ spec:
         - name: mysql
           image: mysql:8.4
           imagePullPolicy: IfNotPresent
+          args:
+            - "--character-set-server=utf8mb4"
+            - "--collation-server=utf8mb4_unicode_ci"
           ports:
             - containerPort: 3306
               name: mysql
@@ -87,7 +90,7 @@ spec:
               command:
                 - bash
                 - "-c"
-                - "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}"
+                - 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -u root --silent'
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
@@ -97,7 +100,7 @@ spec:
               command:
                 - bash
                 - "-c"
-                - "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}"
+                - 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -u root --silent'
             initialDelaySeconds: 15
             periodSeconds: 5
             timeoutSeconds: 3

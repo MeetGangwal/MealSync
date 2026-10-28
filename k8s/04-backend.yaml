@@ -14,6 +14,11 @@ spec:
       targetPort: 8080
       protocol: TCP
       name: http-api
+    # Internal only (Prometheus scrape); the ingress routes to the frontend service.
+    - port: 8081
+      targetPort: 8081
+      protocol: TCP
+      name: management
   selector:
     app.kubernetes.io/name: backend
 ---
@@ -51,7 +56,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: backend
-          image: mealsync-backend:latest
+          image: mealsync-backend:local
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -61,6 +66,8 @@ spec:
           ports:
             - containerPort: 8080
               name: http-api
+            - containerPort: 8081
+              name: management
           env:
             # ── Server & Runtime Config ──
             - name: SERVER_PORT
@@ -68,20 +75,33 @@ spec:
                 configMapKeyRef:
                   name: mealsync-config
                   key: SERVER_PORT
-            - name: SPRING_PROFILES_ACTIVE
+            - name: MANAGEMENT_PORT
               valueFrom:
                 configMapKeyRef:
                   name: mealsync-config
-                  key: SPRING_PROFILES_ACTIVE
+                  key: MANAGEMENT_PORT
+            - name: MEALSYNC_SEED_DEMO_USERS
+              valueFrom:
+                configMapKeyRef:
+                  name: mealsync-config
+                  key: MEALSYNC_SEED_DEMO_USERS
 
-            # ── Database Connection ──
-            # Defaults to DB_URL (MySQL: jdbc:mysql://mysql:3306/mealsync).
-            # If testing against PostgreSQL, change key to POSTGRES_DB_URL.
-            - name: DB_URL
+            # ── Database Connection (service "mysql") ──
+            - name: DB_HOST
               valueFrom:
                 configMapKeyRef:
                   name: mealsync-config
-                  key: DB_URL
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mealsync-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mealsync-config
+                  key: DB_NAME
             - name: DB_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -114,20 +134,24 @@ spec:
               cpu: 500m
               memory: 1024Mi
 
-          # ── Probes ──
-          # Uses tcpSocket because Spring Boot Actuator is not yet present in
-          # backend/pom.xml. Once Actuator is merged, switch to httpGet /actuator/health.
+          # ── Probes (Actuator on the internal management port) ──
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 5
+            failureThreshold: 36
           livenessProbe:
-            tcpSocket:
-              port: 8080
-            initialDelaySeconds: 45
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            tcpSocket:
-              port: 8080
-            initialDelaySeconds: 30
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3

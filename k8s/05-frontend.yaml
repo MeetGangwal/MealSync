@@ -46,7 +46,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: mealsync-frontend:latest
+          image: mealsync-frontend:local
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

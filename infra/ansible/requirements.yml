@@ -1,0 +1,5 @@
+# Ansible collections used by the MealSync playbooks.
+# Install with: ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general   # community.general.ufw
+    version: ">=9.0.0,<11.0.0"

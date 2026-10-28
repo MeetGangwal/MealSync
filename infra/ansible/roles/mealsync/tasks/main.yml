@@ -22,6 +22,7 @@
 
 - name: Create or update mealsync-secret securely from inventory variables
   ansible.builtin.shell: |
+    set -o pipefail
     kubectl create secret generic mealsync-secret \
       --namespace={{ mealsync_namespace }} \
       --from-literal=DB_USERNAME="{{ db_username }}" \
@@ -30,6 +31,8 @@
       --from-literal=JWT_SECRET="{{ jwt_secret }}" \
       --from-literal=GRAFANA_ADMIN_PASSWORD="{{ grafana_admin_password }}" \
       --dry-run=client -o yaml | kubectl apply -f -
+  args:
+    executable: /bin/bash
   changed_when: true
   no_log: true # Protect credentials from appearing in Ansible task output logs
 

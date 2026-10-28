@@ -34,7 +34,8 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # so we can also run with a non-root user if desired
 EXPOSE 80
 
+# IPv4 address: nginx listens on 0.0.0.0:80 and "localhost" resolves to ::1 in this image
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost/health || exit 1
+  CMD wget -qO- http://127.0.0.1/health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

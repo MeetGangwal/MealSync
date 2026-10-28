@@ -28,9 +28,7 @@ data:
         scrape_interval: 10s
         metrics_path: "/actuator/prometheus"
         static_configs:
-          - targets: ["backend:8080"]
-        # Note: Scrape will return 401/404 until Spring Boot Actuator is added
-        # by Meet in backend/pom.xml and permitted in SecurityConfig.
+          - targets: ["backend:8081"]   # internal management port
 ---
 apiVersion: v1
 kind: Service
@@ -107,6 +105,7 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://prometheus:9090
         isDefault: true

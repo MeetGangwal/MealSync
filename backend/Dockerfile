@@ -18,7 +18,7 @@ COPY mvnw pom.xml ./
 RUN dos2unix mvnw && chmod +x mvnw && ./mvnw dependency:go-offline -q
 
 # Copy source and package; skip tests during image build
-# (Tests require a live database — run them in CI with a service container)
+# (Tests need Docker for the MySQL Testcontainer — they run in CI and via mvnw verify)
 COPY src/ src/
 RUN ./mvnw package -DskipTests -q
 
@@ -28,7 +28,7 @@ RUN ./mvnw package -DskipTests -q
 FROM eclipse-temurin:17-jre-alpine AS runtime
 
 # Create a non-root user for the application
-RUN addgroup -S mealsync && adduser -S mealsync -G mealsync
+RUN addgroup -S -g 1000 mealsync && adduser -S -u 1000 -G mealsync mealsync
 
 WORKDIR /app
 
@@ -40,18 +40,14 @@ RUN chown -R mealsync:mealsync /app
 
 USER mealsync
 
-EXPOSE 8080
+EXPOSE 8080 8081
 
 # ── Health check ──────────────────────────────────────────────────────────────
-# NOTE: Spring Boot Actuator is NOT currently in pom.xml.
-# Until Meet adds it, we use a simple HTTP check against the login endpoint.
-# Once Actuator is added, change this to:
-#   CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+# Actuator readiness on the internal management port (8081).
 HEALTHCHECK --interval=20s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8080/api/auth/login \
-      --post-data '{}' --server-response 2>&1 | grep -qE "HTTP" || exit 1
+  CMD wget -qO- http://localhost:8081/actuator/health/readiness || exit 1
 
-# Spring Boot reads DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET from environment
+# Spring Boot reads DB_HOST, DB_PORT, DB_NAME, DB_USERNAME, DB_PASSWORD, JWT_SECRET from the environment
 ENTRYPOINT ["java", \
   "-Djava.security.egd=file:/dev/./urandom", \
   "-jar", "app.jar"]

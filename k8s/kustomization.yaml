@@ -6,7 +6,6 @@ namespace: mealsync
 resources:
   - 00-namespace.yaml
   - 01-configmap.yaml
-  - 02-secret.example.yaml
   - 03-mysql.yaml
   - 04-backend.yaml
   - 05-frontend.yaml
@@ -14,5 +13,6 @@ resources:
   - 07-hpa.yaml
   - 08-monitoring.yaml
 
-# To use PostgreSQL instead of MySQL during testing with current uncommitted code:
-# replace 03-mysql.yaml with 03-postgres.yaml
+# The Secret "mealsync-secret" is NOT part of this kustomization, so applying it can
+# never overwrite real credentials with placeholders. Create it first (see README.md):
+#   kubectl create secret generic mealsync-secret -n mealsync --from-env-file=<your .env>
