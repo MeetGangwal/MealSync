@@ -73,7 +73,7 @@
 - **Data Safety**:
   - No database tables were dropped, truncated, or recreated.
   - Foreign key integrity was maintained across `users`, `meals`, `orders`, and `order_items`.
-  - `DataSeeder.java` is guarded by `@Value("${mealsync.seed.demo-users:true}")` to prevent unwanted reseeding in production.
+  - Demo accounts are seeded only when `MEALSYNC_SEED_DEMO_USERS=true` (default `false`), with passwords from `MEALSYNC_DEMO_STUDENT_PASSWORD` / `MEALSYNC_DEMO_ADMIN_PASSWORD`; seeding is serialized across replicas with a MySQL lock.
 
 ---
 
@@ -83,10 +83,10 @@
 | :--- | :--- |
 | **Backend Port** | `8080` (HTTP) |
 | **Frontend Port** | `5173` (Vite dev server) / Nginx port `80` (Docker production) |
-| **Database Target** | MySQL 8.x / 9.x, database `mealsync` on port `3306` |
-| **Environment Variables (Backend)** | `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `MEALSYNC_SEED_DEMO_USERS` |
-| **Environment Variables (Frontend)** | `VITE_API_URL` (optional, default uses `/api` proxy or same-origin) |
-| **Health Check Endpoint** | `GET /actuator/health` or `GET /api/meals` |
-| **Prometheus Metrics** | `GET /actuator/prometheus` (Spring Boot Actuator) |
-| **Database Migrations** | Hibernate `ddl-auto: update` configured with `MySQLDialect` |
+| **Database Target** | MySQL 8.4, database `mealsync` on port `3306` (`utf8mb4`) |
+| **Environment Variables (Backend)** | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `MANAGEMENT_PORT`, `MEALSYNC_SEED_DEMO_USERS`, `MEALSYNC_DEMO_STUDENT_PASSWORD`, `MEALSYNC_DEMO_ADMIN_PASSWORD` |
+| **Environment Variables (Frontend)** | None — the frontend calls `/api` on its own origin (Vite proxy in development, Nginx proxy in containers) |
+| **Health Check Endpoint** | `GET :8081/actuator/health` (also `/health/liveness`, `/health/readiness`) — internal management port |
+| **Prometheus Metrics** | `GET :8081/actuator/prometheus` (Spring Boot Actuator + Micrometer) |
+| **Database Migrations** | Hibernate `ddl-auto: update` (MySQL dialect auto-detected) |
 

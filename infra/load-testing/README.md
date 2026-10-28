@@ -1,83 +1,65 @@
-# MealSync — Load Testing Suite
+# MealSync — Load Testing
 
-This directory contains the load testing configuration and tools for evaluating the performance, throughput, and autoscaling resilience of the MealSync application.
+Tools for measuring throughput and latency of the running stack. Run them only against your
+own local stack (Compose or the local Kubernetes cluster), never against shared systems.
 
----
+## What the k6 script exercises
 
-## Load Testing Strategy & Safety Rules
+`k6-test.js` follows the real request path **browser → Nginx → `/api` proxy → Spring Boot → MySQL**:
 
-1. **Target Safe Endpoints First**:
-   - `GET /health` (Nginx & Spring Boot healthcheck probes)
-   - `GET /` (React SPA root index)
-   - Do **NOT** flood authentication endpoints (`/api/auth/register`) or create dummy records on production databases.
-2. **Local & Isolated Execution**:
-   - Always run tests against local container stacks or dedicated staging environments (`http://localhost:3080` or `http://localhost:3000`).
-   - Never run unmetered load tests against shared or third-party cloud infrastructure without prior authorization.
-3. **Metrics Captured**:
-   - Total requests & Request Rate (RPS / Throughput)
-   - Error rate (%)
-   - Latency distribution: Min, Mean, Median (p50), 90th percentile (p90), 95th percentile (p95), 99th percentile (p99), Max.
+| Endpoint | Purpose | Threshold (p95) |
+|---|---|---|
+| `GET /health`, `GET /` | Nginx and the SPA shell | < 200 ms |
+| `GET /api/meals` | Public, database-backed menu | < 500 ms |
+| `GET /api/auth/me` | JWT-authenticated request | < 500 ms |
 
----
+Overall: errors < 1 %, checks > 99 %. `setup()` registers **one** throwaway student with a
+random password; no orders are placed, so meal stock is untouched.
 
-## Tool 1: Grafana k6 (Cloud-Native Standard)
+Options (environment variables): `BASE_URL` (default `http://localhost:3080`), `VUS`
+(default 10), `DURATION` of the steady phase (default `15s`). Total run = 5 s ramp-up +
+`DURATION` + 5 s ramp-down.
 
-### Running via Docker (Zero Installation)
-If `k6` is not installed on your host system, execute it directly using the official `grafana/k6` container image:
+## Run with Docker (no k6 install)
 
-```powershell
-# Windows PowerShell:
-docker run --rm -i --network=host grafana/k6:latest run -e BASE_URL=http://localhost:3080 - < infra/load-testing/k6-test.js
-
-# Or mounting the file:
-docker run --rm -v ${PWD}/infra/load-testing:/test -w /test --network=host grafana/k6:latest run -e BASE_URL=http://localhost:3080 k6-test.js
-```
+On Docker Desktop (Windows/macOS) the container reaches host ports via `host.docker.internal`:
 
 ```bash
-# Linux / macOS:
-docker run --rm -i --network=host grafana/k6:latest run -e BASE_URL=http://localhost:3080 - < infra/load-testing/k6-test.js
+docker run --rm -i -e BASE_URL=http://host.docker.internal:3080 -e VUS=20 -e DURATION=30s \
+  grafana/k6:1.3.0 run - < infra/load-testing/k6-test.js
 ```
 
-### Running with Native k6 Binary
+On Linux (and in CI) use the host network instead:
+
 ```bash
-k6 run -e BASE_URL=http://localhost:3080 -e VUS=20 -e DURATION=30s infra/load-testing/k6-test.js
+docker run --rm -i --network host -e BASE_URL=http://localhost:3000 \
+  grafana/k6:1.3.0 run - < infra/load-testing/k6-test.js
 ```
 
----
+Kubernetes (NodePort): `-e BASE_URL=http://host.docker.internal:30080`.
 
-## Tool 2: Standalone Python Load Tester (Zero Dependencies)
+Recorded result (Compose, 20 VUs): 12 938 requests, 0 % errors, p95 `/api/meals` 13.4 ms,
+p95 `/api/auth/me` 16.4 ms — see [docs/VERIFICATION.md](../../docs/VERIFICATION.md#5-load-test-k6-compose).
 
-A Python 3 tool using standard library `urllib` and `concurrent.futures`. Requires no external pip packages.
+Watch the effect live in Grafana (request rate, p95 latency, CPU, DB pool panels).
 
-```powershell
-# Test Frontend Health endpoint with 10 concurrent clients for 10 seconds:
+## Standalone Python load tester
+
+Standard-library only (`urllib`, `concurrent.futures`), useful for quick single-URL tests:
+
+```bash
 python infra/load-testing/load_test.py --url http://localhost:3080/health -c 10 -d 10
-
-# Test Frontend SPA root with 25 concurrent clients for 20 seconds:
-python infra/load-testing/load_test.py --url http://localhost:3080/ -c 25 -d 20
+python infra/load-testing/load_test.py --url http://localhost:3080/api/meals -c 25 -d 20
 ```
 
----
+## Autoscaling (HPA) experiment — requires metrics-server
 
-## Comparing Performance: Before vs. After Scaling (HPA)
+`k8s/07-hpa.yaml` scales the backend between 1 and 3 replicas at 70 % CPU. Docker Desktop
+does not include metrics-server, so the HPA shows `cpu: <unknown>` until it is installed.
+With metrics-server present:
 
-To demonstrate the impact of Kubernetes Horizontal Pod Autoscaler (HPA):
-
-1. **Baseline Test (1 Replica)**:
-   ```bash
-   kubectl scale deployment/mealsync-backend --replicas=1 -n mealsync
-   python infra/load-testing/load_test.py --url http://localhost:30080/health -c 10 -d 30
-   ```
-   *Record RPS, CPU utilization in Grafana, and p95 latency.*
-
-2. **Autoscaled Test (Under HPA 1–3 Replicas)**:
-   ```bash
-   kubectl apply -f k8s/07-hpa.yaml
-   # Generate steady load for 60 seconds to trigger CPU threshold (>70%)
-   python infra/load-testing/load_test.py --url http://localhost:30080/health -c 40 -d 60
-   ```
-   *Observe HPA scale up pods:*
-   ```bash
-   kubectl get hpa -n mealsync -w
-   ```
-   *Notice the latency reduction and throughput increase once replica count increases from 1 to 3.*
+```bash
+kubectl get hpa -n mealsync -w            # in one terminal
+docker run --rm -i -e BASE_URL=http://host.docker.internal:30080 -e VUS=50 -e DURATION=120s \
+  grafana/k6:1.3.0 run - < infra/load-testing/k6-test.js
+```

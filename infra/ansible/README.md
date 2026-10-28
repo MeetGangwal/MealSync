@@ -1,5 +1,20 @@
 # MealSync — Ansible Configuration Management & Deployment
 
+> **Status: syntax-checked and linted, not executed against a host.** There is no cloud host in
+> this project. Validation (Ansible does not run natively on Windows, so it runs in a container):
+>
+> ```bash
+> docker run --rm -v "$PWD/infra/ansible:/src:ro" python:3.12-slim sh -c '
+>   pip install -q "ansible-core==2.17.7" "ansible-lint==24.12.2" && cp -r /src /work && cd /work &&
+>   ansible-galaxy collection install -r requirements.yml &&
+>   for pb in playbooks/*.yml; do ansible-playbook --syntax-check "$pb"; done &&
+>   ansible-lint --offline playbooks/'
+> ```
+> Verified: 3/3 playbooks pass the syntax check; ansible-lint production profile, 0 failures.
+> To run the playbooks for real, use a Linux VM you control (e.g. a local VirtualBox/WSL VM)
+> in `inventory/`. The `mealsync` role applies the `k8s/` manifests, which expect the images
+> `mealsync-backend:local` and `mealsync-frontend:local` to exist on that host.
+
 This directory contains the Ansible automation playbooks and roles for bootstrapping target cloud hosts, provisioning container runtimes, setting up Kubernetes (K3s), and deploying the MealSync application.
 
 ---

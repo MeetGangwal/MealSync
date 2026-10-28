@@ -1,121 +1,64 @@
-# MealSync — Security & Reliability Review Report
+# MealSync — Security & Reliability
 
-> **Milestone 3** · Branch: `feat/cloud-native-deployment`  
-> **Infrastructure & DevOps Owner**: Aryan Sagar Dandekar  
-> **Application Owner**: Meet Gangwal (Frontend, Backend, Database)
+Current state of the integrated application and local infrastructure. Each item lists where it
+is implemented; verified behaviour is recorded in [VERIFICATION.md](VERIFICATION.md).
 
----
+## 1. Security controls
 
-## 1. Security Audit Matrix
+| Area | Control | Where |
+|---|---|---|
+| Secrets in Git | `.env`, `.env.*` (except templates), `k8s/*-secret.yaml`, `*.tfstate`, `*.tfvars`, vault files are git-ignored; only placeholder templates are tracked. Commits are scanned for secret values before committing. | `.gitignore`, `.env.example`, `k8s/02-secret.example.yaml` |
+| No silent credential fallbacks | Compose refuses to start without `DB_USERNAME`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`, `JWT_SECRET`, `GRAFANA_ADMIN_PASSWORD` | `docker-compose.yml` |
+| Kubernetes Secret safety | `mealsync-secret` is created from `.env` and is **not** in the kustomization, so `kubectl apply -k` cannot overwrite it with placeholders | `k8s/kustomization.yaml`, `k8s/README.md` |
+| Password storage | BCrypt (strength 10); 6–72 character passwords | `SecurityConfig`, `UserService` |
+| Tokens | HS256 JWT, secret ≥ 32 bytes from the environment, 24 h expiry | `JwtUtils`, `application.yml` |
+| Authorization | Registration always `ROLE_USER`; `/api/admin/**` requires `ROLE_ADMIN`; students only see their own orders | `SecurityConfig`, `OrderController` |
+| No secrets in logs or responses | JWT secret never printed (startup error and `start-backend.sh`); failed logins log only the failure type, not the email; JWT errors log only the exception type; 500 responses carry no exception text | `JwtUtils`, `AuthController`, `AuthTokenFilter`, `scripts/start-backend.sh` |
+| Demo accounts | Off by default; created only with `MEALSYNC_SEED_DEMO_USERS=true` and passwords supplied via environment; no credentials in the frontend bundle | `DataSeeder`, `LoginPage.jsx` |
+| Actuator exposure | Only `health` (no details) and `prometheus`, on internal port 8081 — not published by Compose, not routed by the ingress/NodePort, not proxied by Nginx | `application.yml`, `docker-compose.yml`, `k8s/04-backend.yaml` |
+| Network exposure | MySQL never published; Prometheus, Grafana, cAdvisor bound to `127.0.0.1`; in Kubernetes only the frontend is exposed (NodePort 30080 / Ingress) | `docker-compose.yml`, `k8s/` |
+| Containers | Backend runs as non-root uid 1000; pods drop all capabilities and disallow privilege escalation; cAdvisor runs without the Docker socket | Dockerfiles, `k8s/04-backend.yaml`, `docker-compose.yml` |
+| Monitoring RBAC | Prometheus ServiceAccount may only `get/list/watch pods` in namespace `mealsync` | `k8s/08-monitoring.yaml` |
+| Grafana | Admin password required; sign-up disabled; anonymous API access returns 401 | `docker-compose.yml`, `k8s/08-monitoring.yaml` |
+| CI | `contents: read` permissions; no cloud deployment; image publishing disabled unless explicitly enabled | `.github/workflows/ci.yml` |
 
-| Security Domain | Vulnerability Risk Checked | Implemented Countermeasure | Status |
-|---|---|---|---|
-| **Credentials in Git** | Plaintext secrets in version control | `.env`, `02-secret.yaml`, `*.tfstate`, `*.tfvars`, `.vault-pass` strictly git-ignored; safe `.example` templates only. | ✅ **Secured** |
-| **Container Root User** | Privilege escalation via container breakout | Backend runs as non-root user `mealsync:mealsync` (UID 1000). Kubernetes pods enforce `allowPrivilegeEscalation: false` and drop all Linux capabilities. | ✅ **Secured** |
-| **Network Exposure** | Direct access to DB and monitoring from public web | Database port (3306/5432) has NO public route. Monitoring (9090, 8090, 3001) is bound to localhost (127.0.0.1) in Compose and restricted to admin IP in AWS Security Groups. | ✅ **Secured** |
-| **Ingress Boundaries** | Internal microservices exposed directly | In Kubernetes, Backend is exposed via internal `ClusterIP: 8080`. Only the Frontend is accessible via Ingress or NodePort 30080. | ✅ **Secured** |
-| **Cloud Spending (FinOps)**| Runaway billing from managed clusters & NAT | Designed single-node K3s architecture on EC2 (`t3.small` / `t3.micro`), avoiding >$215/mo EKS and NAT gateway fees. RDS is disabled by default (`enable_rds = false`). | ✅ **Secured** |
-| **Storage Persistence** | Data loss upon container recreation | MySQL and PostgreSQL data stored in named Docker volumes (`mealsync-db-data`) and Kubernetes PVCs (`mysql-data`, 2Gi). AWS EBS root volume is encrypted with default KMS. | ✅ **Secured** |
-| **CI/CD Supply Chain** | Credential leakage in logs or unauthorized releases | GitHub Actions uses least-privilege `contents: read`. Images are pushed ONLY on main branch push AND only when secrets are present. | ✅ **Secured** |
-| **Self-Healing & Downtime**| Single-point-of-failure or broken deployments | Kubernetes Deployments configured with `RollingUpdate` (`maxSurge: 1`, `maxUnavailable: 0`), TCP/HTTP liveness and readiness probes. | ✅ **Secured** |
+### Open security items
+- **Rotate exposed credentials.** A database password and a JWT secret were committed in the
+  early history of `main`, and another database password is inside `backend.zip` in the history
+  of `feat/meet-application`. Removing them from current files does not remove them from Git
+  history: change those passwords/secrets wherever they were used. Rewriting history is
+  optional and needs coordination with every collaborator.
+- JWT is stored in `sessionStorage` (XSS exposure); HttpOnly cookies would be stronger.
+- Password reset is disabled until a token-based flow exists.
+- MySQL connections use `useSSL=false` (acceptable on a local Docker/K8s network only).
 
----
+## 2. Reliability
 
-## 2. Infrastructure Fixes Implemented in Milestone 3
+| Concern | Measure | Where |
+|---|---|---|
+| Start-up ordering | Compose: MySQL healthy → backend ready → frontend. Kubernetes: init container waits for MySQL; startup probe | `docker-compose.yml`, `k8s/04-backend.yaml` |
+| Health checks | MySQL `mysqladmin ping` (password via `MYSQL_PWD`, not on the command line); backend Actuator readiness/liveness; Nginx `/health` | Compose, Dockerfiles, K8s probes |
+| Multiple replicas | Data seeding serialized with a MySQL named lock released after commit (prevents duplicate rows when replicas start together) | `DataSeeder` (+ concurrency regression test) |
+| Persistence | Compose named volume `mealsync-db-data`; Kubernetes PVC `mysql-data-mysql-0` (2 Gi) | Compose, `k8s/03-mysql.yaml` |
+| Zero-downtime updates | RollingUpdate `maxSurge: 1`, `maxUnavailable: 0`, readiness gates traffic | `k8s/04-backend.yaml` |
+| Self-healing | Deployments replace deleted/crashed pods | Kubernetes |
+| Order safety | Pessimistic row lock on stock; idempotency key prevents double orders | `MealRepository`, `OrderController` |
+| Observability | HTTP rate, p95 latency, 5xx rate, JVM heap, CPU, DB pool; per-service container CPU/memory (Compose) | Grafana dashboards |
 
-1. **Pod Security Hardening (`k8s/04-backend.yaml`)**:
-   - Added `securityContext` to pod spec:
-     ```yaml
-     securityContext:
-       runAsNonRoot: true
-       runAsUser: 1000
-       runAsGroup: 1000
-       fsGroup: 1000
-     ```
-   - Added container capabilities drop:
-     ```yaml
-     securityContext:
-       allowPrivilegeEscalation: false
-       capabilities:
-         drop:
-           - ALL
-     ```
-2. **Frontend Security Context (`k8s/05-frontend.yaml`)**:
-   - Added `securityContext: allowPrivilegeEscalation: false` to prevent child processes from obtaining more privileges than the parent process.
-3. **Nginx Upstream Startup Resilience**:
-   - Identified that static `proxy_pass http://backend:8080` in Nginx causes an immediate exit if the backend container is not reachable during DNS resolution at startup.
-   - For standalone testing, documented `--add-host backend:127.0.0.1` flag.
-   - For Kubernetes, ensured `04-backend.yaml` creates the `backend` Service prior to frontend pod creation, and frontend readiness probe prevents traffic routing until healthy.
-4. **Enhanced Git Ignore Protection (`.gitignore`)**:
-   - Prevented accidental leakage of Kubernetes secret manifests (`k8s/*secret*.yaml`), Terraform state files (`*.tfstate`), and Ansible vault files (`infra/ansible/group_vars/*_vault.yml`).
+## 3. Stop, rollback, teardown (data-safe first)
 
----
-
-## 3. Action Items for Meet (Backend Application Owner)
-
-The infrastructure layer is complete and hardened. The following application-level enhancements are required from Meet to achieve full end-to-end integration:
-
-1. **Add Spring Boot Actuator**:
-   - **File**: `backend/pom.xml`
-   - **Dependency**:
-     ```xml
-     <dependency>
-         <groupId>org.springframework.boot</groupId>
-         <artifactId>spring-boot-starter-actuator</artifactId>
-     </dependency>
-     <dependency>
-         <groupId>io.micrometer</groupId>
-         <artifactId>micrometer-registry-prometheus</artifactId>
-     </dependency>
-     ```
-   - **File**: `backend/src/main/resources/application.yml`
-     ```yaml
-     management:
-       endpoints:
-         web:
-           exposure:
-             include: health, info, prometheus
-     ```
-   - **File**: `backend/src/main/java/com/mealsync/config/SecurityConfig.java`
-     Permit unauthenticated access to health and metrics endpoints:
-     ```java
-     .requestMatchers("/actuator/**").permitAll()
-     ```
-   - **Benefit**: Enables Prometheus to scrape JVM memory, GC, and HTTP request metrics, and enables Kubernetes HPA to autoscale backend pods based on application metrics.
-
-2. **Finalize Database Driver Selection**:
-   - **Conflict**: Project specification states **MySQL**, but current working tree uses PostgreSQL JDBC driver and dialect.
-   - **Fix**: Revert to `mysql-connector-j` and `org.hibernate.dialect.MySQLDialect` in `backend/pom.xml` and `backend/src/main/resources/application.yml`.
-   - **Infrastructure Readiness**: Both [`k8s/03-mysql.yaml`](file:///d:/ARYAN/MCA/3.%20SEM%203/CC/Project/MealSync/k8s/03-mysql.yaml) and [`k8s/03-postgres.yaml`](file:///d:/ARYAN/MCA/3.%20SEM%203/CC/Project/MealSync/k8s/03-postgres.yaml) are ready.
-
----
-
-## 4. Teardown & Rollback Procedures
-
-### Local Container Teardown
 ```bash
-# Stop containers without losing database volume
+# Compose: stop, keep data
 docker compose down
+# Compose: DELETES the database volume — only when you really want to wipe data
+# docker compose down -v
 
-# Stop containers and destroy database volume
-docker compose down -v
-```
-
-### Kubernetes Rollback & Teardown
-```bash
-# Roll back a faulty backend deployment to the previous revision
+# Kubernetes: roll back a bad backend rollout
 kubectl rollout undo deployment/mealsync-backend -n mealsync
-
-# Check rollback history
-kubectl rollout history deployment/mealsync-backend -n mealsync
-
-# Complete teardown of all MealSync Kubernetes resources
-kubectl delete -k k8s/
+# Kubernetes: stop, keep data
+kubectl scale deployment --all -n mealsync --replicas=0
+kubectl scale statefulset mysql -n mealsync --replicas=0
+# Kubernetes: `kubectl delete -k k8s` also deletes the namespace and the MySQL PVC (data loss)
 ```
 
-### Terraform Cloud Infrastructure Teardown
-```bash
-cd infra/terraform
-# Destroys EC2 instance, Elastic IP, Security Groups, Subnet, and VPC
-terraform destroy -auto-approve
-```
+Terraform is never applied in this project, so there is no cloud teardown.

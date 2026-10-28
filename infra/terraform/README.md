@@ -1,5 +1,17 @@
 # MealSync — AWS Infrastructure with Terraform
 
+> **Status: configuration validation only — never applied.** The project does not use AWS
+> (time and cost constraints). This configuration documents a possible low-cost cloud layout
+> and is checked for correctness only:
+>
+> ```bash
+> terraform fmt -check -recursive
+> terraform init -backend=false     # provider plugin only; no credentials, no API calls
+> terraform validate                # verified: "Success! The configuration is valid."
+> ```
+> The same steps run in CI. The AWS setup, `plan`, `apply` and `destroy` sections below are
+> reference material for a future cloud deployment and require explicit authorization.
+
 This directory provides the Infrastructure-as-Code (IaC) layer for provisioning MealSync's cloud foundation on Amazon Web Services (AWS).
 
 ---

@@ -1,11 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # MealSync — MySQL StatefulSet & Service (In-Cluster Database)
 # 
-# DATABASE NOTE:
-# The project specification defines MySQL as the primary database.
-# In the current working tree, backend pom.xml contains PostgreSQL driver
-# dependencies. When Meet aligns the backend with MySQL, this manifest provides
-# production-grade persistent database storage with a StatefulSet.
+# MySQL 8.4 (utf8mb4) with a 2Gi PersistentVolumeClaim. The backend reaches it as
+# DB_HOST=mysql (headless Service below). Credentials come from Secret mealsync-secret.
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
