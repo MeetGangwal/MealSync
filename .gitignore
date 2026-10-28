@@ -1,31 +1,72 @@
-# Java / Maven
+
+# ── Local secrets ─────────────────────────────────────────────────────────────
+.env
+backend/.env
+*.env.local
+
+# ── Kubernetes Secrets ───────────────────────────────────────────────────────
+k8s/02-secret.yaml
+k8s/*-secret.yaml
+!k8s/*.example.yaml
+
+# ── Terraform State & Secrets ─────────────────────────────────────────────────
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ── Ansible Secrets ──────────────────────────────────────────────────────────
+*.retry
+.vault-pass
+infra/ansible/group_vars/*_vault.yml
+
+
+# ── Java / Maven build output ─────────────────────────────────────────────────
 backend/target/
 *.class
+*.jar
+*.war
 
-# Secrets and environment files
-.env
+# ── Node / frontend build output ─────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+# Do NOT ignore docker-compose.yml, Dockerfiles, or infra/ config
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+*.iml
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Merged from feat/meet-application ─────────────────────────────────────────
+# Any .env variant is ignored; only the templates are tracked.
 .env.*
 !.env.example
 !.env.template
 jwt-secret.txt
 *.secret.txt
-
-# Node.js / Vite
-frontend/node_modules/
-frontend/dist/
-
-# macOS artifacts
-.DS_Store
 .AppleDouble
-
-# Logs
-*.log
-
-# IDE / editor
-.idea/
-*.iml
-.vscode/
-*.swp
-
-# Build output (do not commit compiled artifacts)
-backend/target/
