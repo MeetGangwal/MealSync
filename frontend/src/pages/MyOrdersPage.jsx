@@ -120,10 +120,10 @@ function OrderCard({ order, expanded, onToggle, onCancel, onRate }) {
             {order.qrVerified && <span className="badge badge-success">✓ QR Scanned</span>}
           </div>
           <div className="body-sm text-secondary">
-            {order.items.map(i => `${i.name} ×${i.qty}`).join(' · ')}
+            {(order.items || []).map(i => `${i.name} ×${i.qty}`).join(' · ')}
           </div>
           <div className="flex items-center gap-md mt-xs">
-            <span className="caption text-muted"><Clock size={12} style={{ display: 'inline', marginRight: 4 }} />{new Date(order.createdAt).toLocaleDateString()}</span>
+            <span className="caption text-muted"><Clock size={12} style={{ display: 'inline', marginRight: 4 }} />{order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Today'}</span>
             <span className="caption text-muted">📍 {order.slotLabel}</span>
           </div>
         </div>
@@ -139,30 +139,16 @@ function OrderCard({ order, expanded, onToggle, onCancel, onRate }) {
           <div className="grid grid-2 gap-lg">
             {/* Left: Details */}
             <div>
-              <h4 className="heading-sm mb-md">Order Details</h4>
+              <h4 className="heading-sm mb-md">Ordered Items</h4>
 
-              {/* Counter breakdown */}
-              {['thali', 'dishes'].map(counter => {
-                const items = order.items.filter(i => i.counter === counter);
-                if (items.length === 0) return null;
-                const counterStatus = counter === 'thali' ? order.thaliStatus : order.dishesStatus;
-                return (
-                  <div key={counter} style={{ marginBottom: 'var(--space-md)', padding: 'var(--space-md)', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
-                    <div className="flex justify-between items-center mb-sm">
-                      <span className="label text-secondary">{counter === 'thali' ? '🍱 Thali Counter' : '🍴 Dishes Counter'}</span>
-                      <span className={`badge ${counterStatus === 'served' ? 'badge-success' : counterStatus === 'ready' ? 'badge-info' : 'badge-warning'}`}>
-                        {counterStatus === 'na' ? 'N/A' : counterStatus}
-                      </span>
-                    </div>
-                    {items.map(i => (
-                      <div key={i.menuItemId} className="flex justify-between">
-                        <span className="body-sm">{i.name} ×{i.qty}</span>
-                        <span className="label">₹{i.price * i.qty}</span>
-                      </div>
-                    ))}
+              <div style={{ marginBottom: 'var(--space-md)', padding: 'var(--space-md)', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
+                {(order.items || []).map(i => (
+                  <div key={i.menuItemId || i.name} className="flex justify-between items-center mb-xs">
+                    <span className="body-sm">{i.emoji || '🍽️'} {i.name} ×{i.qty}</span>
+                    <span className="label text-brand">₹{i.price * i.qty}</span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
 
               {order.notes && (
                 <div className="alert alert-info" style={{ marginBottom: 'var(--space-md)' }}>

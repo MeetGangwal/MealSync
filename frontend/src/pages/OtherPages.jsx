@@ -1,59 +1,95 @@
+import { useState, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useApp } from '../context/AppContext';
 import { SectionHeader, ProgressBar } from '../components/Shared';
-import { Star, Package, Pause, Play, SkipForward } from 'lucide-react';
-import { USERS } from '../data/mockData';
+import { Star, Package, Pause, Play, SkipForward, Search, Edit3, Save, X, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export function LiveMenuPage({ setPage }) {
   const { menuItems } = useApp();
-  const thali = menuItems.filter(i => i.counter === 'thali');
-  const dishes = menuItems.filter(i => i.counter === 'dishes');
+  const [category, setCategory] = useState('all');
+  const [search, setSearch] = useState('');
+
+  const categories = [
+    { key: 'all', label: 'All Items', icon: '🍽️' },
+    { key: 'thali', label: 'Thalis & Combos', icon: '🍱' },
+    { key: 'snacks', label: 'Snacks & Quick Bites', icon: '🍔' },
+    { key: 'south-indian', label: 'South Indian & Breakfast', icon: '🥞' },
+    { key: 'meals', label: 'Rice Bowls & Meals', icon: '🍛' },
+    { key: 'beverages', label: 'Beverages', icon: '🥤' },
+  ];
+
+  const filtered = useMemo(() => {
+    return menuItems.filter(item => {
+      const matchCat = category === 'all' || item.category === category;
+      const matchSearch = !search.trim() ||
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        (item.description && item.description.toLowerCase().includes(search.toLowerCase()));
+      return matchCat && matchSearch;
+    });
+  }, [menuItems, category, search]);
 
   return (
     <div>
       <SectionHeader
-        title="Live Menu"
-        subtitle="Real-time availability — updated as orders are placed"
+        title="Live Campus Menu"
+        subtitle="Real-time kitchen inventory for our single food counter"
         actions={
           <div className="flex items-center gap-sm">
             <div className="status-dot online pulse" />
-            <span className="body-sm text-success">Live • Updates in real-time</span>
+            <span className="body-sm text-success">Live Kitchen Sync</span>
           </div>
         }
       />
 
-      <div className="mb-xl">
-        <div className="flex items-center gap-sm mb-md">
-          <span style={{ fontSize: '1.75rem' }}>🍱</span>
-          <h2 className="heading-lg">Thali Counter</h2>
-          <span className="badge badge-primary">Counter 1</span>
+      {/* Filter and Search Bar */}
+      <div className="flex gap-md mb-lg flex-wrap items-center">
+        <div className="search-bar" style={{ flex: 1, minWidth: 240 }}>
+          <Search size={16} className="search-icon" />
+          <input
+            placeholder="Search live menu..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
         </div>
-        <div className="grid grid-3 gap-md">
-          {thali.map(item => <LiveMenuItem key={item.id} item={item} onOrder={() => setPage('order')} />)}
+        <div className="tab-list" style={{ overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          {categories.map(c => (
+            <div
+              key={c.key}
+              className={`tab-item ${category === c.key ? 'active' : ''}`}
+              onClick={() => setCategory(c.key)}
+            >
+              <span style={{ marginRight: 6 }}>{c.icon}</span>
+              {c.label}
+            </div>
+          ))}
         </div>
       </div>
 
-      <div>
-        <div className="flex items-center gap-sm mb-md">
-          <span style={{ fontSize: '1.75rem' }}>🍴</span>
-          <h2 className="heading-lg">Other Dishes Counter</h2>
-          <span className="badge badge-info">Counter 2</span>
-        </div>
-        <div className="grid grid-3 gap-md">
-          {dishes.map(item => <LiveMenuItem key={item.id} item={item} onOrder={() => setPage('order')} />)}
-        </div>
+      <div className="grid grid-3 gap-md">
+        {filtered.map(item => (
+          <LiveMenuItem key={item.id} item={item} onOrder={() => setPage('order')} />
+        ))}
       </div>
+
+      {filtered.length === 0 && (
+        <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-sm)' }}>🍲</div>
+          <div className="heading-md mb-xs">No items found</div>
+          <div className="body-sm text-muted">Try selecting a different category or clearing your search term.</div>
+        </div>
+      )}
     </div>
   );
 }
 
 function LiveMenuItem({ item, onOrder }) {
   const soldOut = !item.available || item.qty === 0;
-  const pct = (item.qty / item.initialQty) * 100;
-  const variant = soldOut ? 'danger' : pct < 20 ? 'warning' : 'success';
+  const initial = item.initialQty || 100;
+  const pct = Math.min(100, Math.round((item.qty / initial) * 100));
+  const variant = soldOut ? 'danger' : pct < 25 ? 'warning' : 'success';
 
   return (
-    <div className={`card ${soldOut ? 'opacity-50' : ''}`} style={{ position: 'relative', overflow: 'hidden' }}>
+    <div className={`card ${soldOut ? 'opacity-50' : ''}`} style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
       {soldOut && (
         <div style={{ position: 'absolute', top: 12, right: 12, background: 'var(--grad-danger)', color: '#fff', fontSize: '0.65rem', fontWeight: 700, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.1em' }}>
           SOLD OUT
@@ -64,36 +100,44 @@ function LiveMenuItem({ item, onOrder }) {
           🔥 Popular
         </div>
       )}
-      <div style={{ fontSize: '3rem', marginBottom: 'var(--space-md)', textAlign: 'center' }}>{item.emoji}</div>
-      <div className="heading-md mb-xs" style={{ textAlign: 'center' }}>{item.name}</div>
-      <div className="body-sm text-muted mb-md" style={{ textAlign: 'center' }}>{item.description}</div>
 
-      <div className="flex justify-between items-center mb-md">
-        <span className="display-md text-brand">₹{item.price}</span>
-        <span className="caption text-muted">⭐ {item.rating}</span>
-      </div>
-
-      <div className="mb-sm">
-        <div className="flex justify-between caption mb-xs">
-          <span className="text-muted">Availability</span>
-          <span className={soldOut ? 'text-danger' : pct < 20 ? 'text-warning' : 'text-success'}>
-            {soldOut ? '0 left' : `${item.qty} / ${item.initialQty}`}
-          </span>
+      <div>
+        <div style={{ fontSize: '2.8rem', marginBottom: 'var(--space-sm)', textAlign: 'center' }}>{item.emoji || '🍽️'}</div>
+        <div className="heading-md mb-xs" style={{ textAlign: 'center' }}>{item.name}</div>
+        <div className="caption text-muted mb-md" style={{ textAlign: 'center', minHeight: 36, lineHeight: 1.4 }}>
+          {item.description}
         </div>
-        <ProgressBar value={item.qty} max={item.initialQty} variant={variant} />
       </div>
 
-      <button
-        className={`btn btn-full ${soldOut ? 'btn-ghost' : 'btn-primary'}`}
-        disabled={soldOut}
-        onClick={onOrder}
-        style={{ marginTop: 'var(--space-sm)' }}
-      >
-        {soldOut ? 'Sold Out' : 'Add to Order'}
-      </button>
+      <div>
+        <div className="flex justify-between items-center mb-md">
+          <span className="display-md text-brand">₹{item.price}</span>
+          <span className="caption text-muted">⭐ {item.rating || '4.5'}</span>
+        </div>
+
+        <div className="mb-sm">
+          <div className="flex justify-between caption mb-xs">
+            <span className="text-muted">Kitchen Stock</span>
+            <span className={soldOut ? 'text-danger' : pct < 25 ? 'text-warning' : 'text-success'}>
+              {soldOut ? '0 available' : `${item.qty} left`}
+            </span>
+          </div>
+          <ProgressBar value={item.qty} max={initial} variant={variant} />
+        </div>
+
+        <button
+          className={`btn btn-full ${soldOut ? 'btn-ghost' : 'btn-primary'}`}
+          disabled={soldOut}
+          onClick={onOrder}
+          style={{ marginTop: 'var(--space-sm)' }}
+        >
+          {soldOut ? 'Sold Out' : 'Order Now →'}
+        </button>
+      </div>
     </div>
   );
 }
+
 
 // ─── Subscription Page ────────────────────────────────────
 export function SubscriptionPage() {
@@ -228,27 +272,129 @@ export function QRTicketsPage() {
 
 // ─── Profile Page ─────────────────────────────────────────
 export function ProfilePage() {
-  const { currentUser, myOrders } = useApp();
-  const totalSpent = myOrders.reduce((s, o) => o.status !== 'cancelled' ? s + o.total : s, 0);
-  const avgRating = myOrders.filter(o => o.rating).reduce((s, o) => s + (Object.values(o.rating).reduce((a, b) => a + b, 0) / 4), 0) / (myOrders.filter(o => o.rating).length || 1);
+  const { currentUser, myOrders, updateProfile, orderFetchError, fetchOrders } = useApp();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(currentUser?.name || '');
+  const [phone, setPhone] = useState(currentUser?.phone || '');
+  const [uid, setUid] = useState(currentUser?.uid || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  // Start editing and reset form state to current user values
+  const handleStartEdit = () => {
+    setName(currentUser?.name || '');
+    setPhone(currentUser?.phone || '');
+    setUid(currentUser?.uid || '');
+    setErrorMsg('');
+    setSuccessMsg('');
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setErrorMsg('');
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setErrorMsg('Full Name cannot be empty.');
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const res = await updateProfile({
+      name: name.trim(),
+      phone: phone.trim(),
+      uid: uid.trim(),
+    });
+
+    setIsSaving(false);
+    if (res.success) {
+      setSuccessMsg('Profile updated and saved to MySQL successfully!');
+      setIsEditing(false);
+    } else {
+      setErrorMsg(res.error || 'Failed to update profile.');
+    }
+  };
+
+  // Real statistics derived from database orders
+  const totalSpent = myOrders.reduce((s, o) => {
+    const isCancelled = o.status?.toUpperCase() === 'CANCELLED';
+    const isFailed = o.paymentStatus?.toUpperCase() === 'PAYMENT_FAILED';
+    return (!isCancelled && !isFailed) ? s + (o.total || 0) : s;
+  }, 0);
+
+  const initialLetter = currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'U';
 
   return (
     <div>
-      <SectionHeader title="My Profile" />
+      <SectionHeader
+        title="My Profile"
+        subtitle="Manage your campus account details and view verified meal transactions"
+        actions={
+          !isEditing ? (
+            <button className="btn btn-primary" onClick={handleStartEdit}>
+              <Edit3 size={15} /> Edit Profile
+            </button>
+          ) : (
+            <button className="btn btn-ghost" onClick={handleCancelEdit} disabled={isSaving}>
+              <X size={15} /> Cancel
+            </button>
+          )
+        }
+      />
+
+      {successMsg && (
+        <div className="alert alert-success mb-lg">
+          <CheckCircle size={18} style={{ flexShrink: 0 }} />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="alert alert-danger mb-lg">
+          <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {orderFetchError && (
+        <div className="alert alert-warning mb-lg flex justify-between items-center">
+          <div className="flex items-center gap-sm">
+            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+            <span>{orderFetchError}</span>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={fetchOrders}>
+            <RefreshCw size={14} /> Retry
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-2 gap-lg">
+        {/* Left Column: Profile Card & Edit Form */}
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)', marginBottom: 'var(--space-xl)' }}>
-            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--grad-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 700, color: '#fff', boxShadow: '0 4px 20px rgba(108,99,255,0.4)' }}>
-              {currentUser?.avatar}
+            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--grad-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 800, color: '#fff', boxShadow: '0 4px 20px rgba(108,99,255,0.4)', flexShrink: 0 }}>
+              {initialLetter}
             </div>
             <div>
               <div className="display-md">{currentUser?.name}</div>
               <div className="body-sm text-muted">{currentUser?.email}</div>
-              <span className="badge badge-primary mt-xs">Student · {currentUser?.uid}</span>
+              <span className="badge badge-primary mt-xs" style={{ fontSize: '0.75rem' }}>
+                {currentUser?.role === 'ROLE_ADMIN' || currentUser?.role === 'admin' ? 'Mess Admin' : 'Student'}
+                {currentUser?.uid ? ` · UID: ${currentUser.uid}` : ''}
+              </span>
             </div>
           </div>
 
-          <div className="grid grid-3 gap-sm" style={{ textAlign: 'center', marginBottom: 'var(--space-xl)' }}>
+          {/* Real Statistics from Persisted Orders */}
+          <div className="grid grid-2 gap-sm" style={{ textAlign: 'center', marginBottom: 'var(--space-xl)' }}>
             <div style={{ background: 'var(--bg-elevated)', padding: 16, borderRadius: 12 }}>
               <div className="heading-lg text-brand">{myOrders.length}</div>
               <div className="caption text-muted">Total Orders</div>
@@ -257,41 +403,131 @@ export function ProfilePage() {
               <div className="heading-lg text-success">₹{totalSpent}</div>
               <div className="caption text-muted">Total Spent</div>
             </div>
-            <div style={{ background: 'var(--bg-elevated)', padding: 16, borderRadius: 12 }}>
-              <div className="heading-lg text-warning">{avgRating.toFixed(1)}⭐</div>
-              <div className="caption text-muted">Avg Rating</div>
-            </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-            {[
-              { label: 'Full Name', value: currentUser?.name },
-              { label: 'UID', value: currentUser?.uid },
-              { label: 'Email', value: currentUser?.email },
-              { label: 'Phone', value: currentUser?.phone },
-            ].map(({ label, value }) => (
-              <div key={label} className="form-group">
-                <label className="form-label">{label}</label>
-                <input className="form-input" value={value || ''} readOnly style={{ opacity: 0.7 }} />
+          {/* Profile Form (View or Edit mode) */}
+          {!isEditing ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+              <div className="form-group">
+                <label className="form-label">Full Name</label>
+                <input className="form-input" value={currentUser?.name || ''} readOnly style={{ opacity: 0.85 }} />
               </div>
-            ))}
-          </div>
+              <div className="form-group">
+                <label className="form-label">Student / Staff UID</label>
+                <input className="form-input" value={currentUser?.uid || 'Not Set'} readOnly style={{ opacity: 0.85 }} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Email Address (Login ID)</label>
+                <input className="form-input" value={currentUser?.email || ''} readOnly style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Phone Number</label>
+                <input className="form-input" value={currentUser?.phone || 'Not Set'} readOnly style={{ opacity: 0.85 }} />
+              </div>
+              <button className="btn btn-ghost btn-full mt-sm" onClick={handleStartEdit}>
+                <Edit3 size={15} /> Edit My Profile
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
+                <input
+                  className="form-input"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Enter your full name"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Student UID (Campus ID)</label>
+                <input
+                  className="form-input"
+                  value={uid}
+                  onChange={e => setUid(e.target.value)}
+                  placeholder="e.g. 2025510014"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Email Address</label>
+                <input
+                  className="form-input"
+                  value={currentUser?.email || ''}
+                  disabled
+                  style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                />
+                <span className="caption text-muted" style={{ fontSize: '0.7rem' }}>Email cannot be changed to prevent account impersonation.</span>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Phone Number</label>
+                <input
+                  className="form-input"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="e.g. +91 98765 43210"
+                />
+              </div>
+
+              <div className="flex gap-sm mt-md">
+                <button type="button" className="btn btn-ghost flex-1" onClick={handleCancelEdit} disabled={isSaving}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary flex-1" disabled={isSaving}>
+                  {isSaving ? (
+                    <span className="flex items-center gap-xs justify-center">
+                      <RefreshCw size={15} className="animate-spin" /> Saving…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-xs justify-center">
+                      <Save size={15} /> Save Changes
+                    </span>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
+        {/* Right Column: Persisted Order History */}
         <div className="card">
-          <h3 className="heading-lg mb-md">Order History</h3>
-          {myOrders.map(o => (
-            <div key={o.id} className="flex justify-between items-center" style={{ padding: '10px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-              <div>
-                <div className="label text-brand">{o.id}</div>
-                <div className="caption text-muted">{new Date(o.createdAt).toLocaleDateString()}</div>
-              </div>
-              <div className="flex gap-sm items-center">
-                <span className="label">₹{o.total}</span>
-                <span className={`badge badge-sm ${o.status === 'completed' ? 'badge-success' : o.status === 'cancelled' ? 'badge-danger' : 'badge-warning'}`}>{o.status}</span>
-              </div>
+          <div className="flex justify-between items-center mb-md">
+            <h3 className="heading-lg">Order History</h3>
+            <span className="caption text-muted">{myOrders.length} records</span>
+          </div>
+
+          {myOrders.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 'var(--space-2xl) var(--space-md)', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📜</div>
+              <div className="heading-sm mb-xs">No orders yet</div>
+              <p className="caption">Orders placed through the campus food portal will appear here.</p>
             </div>
-          ))}
+          ) : (
+            <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
+              {myOrders.map(o => (
+                <div key={o.id} className="flex justify-between items-center" style={{ padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div>
+                    <div className="flex items-center gap-xs">
+                      <span className="label text-brand">{o.id}</span>
+                      <span className="badge badge-muted" style={{ fontSize: '0.65rem' }}>{o.payMethod || 'UPI'}</span>
+                    </div>
+                    <div className="caption text-muted" style={{ marginTop: 2 }}>
+                      {o.createdAt ? new Date(o.createdAt).toLocaleString() : 'Recent'} · {o.slotLabel || 'Counter'}
+                    </div>
+                  </div>
+                  <div className="flex gap-sm items-center">
+                    <span className="label" style={{ fontWeight: 700 }}>₹{o.total}</span>
+                    <span className={`badge badge-sm ${
+                      o.status?.toLowerCase() === 'completed' ? 'badge-success' :
+                      o.status?.toLowerCase() === 'cancelled' ? 'badge-danger' : 'badge-warning'
+                    }`}>
+                      {o.status || 'CONFIRMED'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

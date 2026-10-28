@@ -1,6 +1,7 @@
-com/mealsync/MealsyncApplication.class
-com/mealsync/model/User.class
 com/mealsync/controller/AuthController.class
+com/mealsync/MealsyncApplication.class
+com/mealsync/config/SecurityConfig.class
+com/mealsync/model/User.class
 com/mealsync/service/UserService.class
 com/mealsync/repository/UserRepository.class
-com/mealsync/config/SecurityConfig.class
+AdminController.class

@@ -147,7 +147,7 @@ export default function StudentDashboard({ setPage }) {
                   {myOrders.slice(0, 4).map(o => (
                     <tr key={o.id}>
                       <td style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>{o.id}</td>
-                      <td>{o.items.map(i => i.name).join(', ')}</td>
+                      <td>{(o.items || []).map(i => i.name).join(', ')}</td>
                       <td>₹{o.total}</td>
                       <td>{o.slotLabel}</td>
                       <td><StatusBadge status={o.status} /></td>

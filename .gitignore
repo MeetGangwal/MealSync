@@ -1,0 +1,31 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+!.env.template
+jwt-secret.txt
+*.secret.txt
+
+# Node.js / Vite
+frontend/node_modules/
+frontend/dist/
+
+# macOS artifacts
+.DS_Store
+.AppleDouble
+
+# Logs
+*.log
+
+# IDE / editor
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# Build output (do not commit compiled artifacts)
+backend/target/

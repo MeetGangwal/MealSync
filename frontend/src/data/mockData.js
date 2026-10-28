@@ -3,8 +3,6 @@
 
 export const ROLES = {
   STUDENT: 'student',
-  THALI_STAFF: 'thali_staff',
-  DISHES_STAFF: 'dishes_staff',
   ADMIN: 'admin',
 };
 
@@ -13,14 +11,17 @@ export const ORDER_STATUS = {
   CONFIRMED: 'confirmed',
   PREPARING: 'preparing',
   READY: 'ready',
-  PARTIALLY_SERVED: 'partially_served',
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
 };
 
 export const ITEM_CATEGORY = {
+  ALL: 'all',
   THALI: 'thali',
-  DISHES: 'dishes',
+  SNACKS: 'snacks',
+  SOUTH_INDIAN: 'south-indian',
+  MEALS: 'meals',
+  BEVERAGES: 'beverages',
 };
 
 // ─── Users ──────────────────────────────────────────────────────────────────
@@ -28,9 +29,7 @@ export const USERS = [
   { id: 'u1', name: 'Aryan Dandekar', email: 'aryan@spit.edu', role: ROLES.STUDENT, uid: '2025510014', avatar: 'AD', phone: '+91 98765 43210' },
   { id: 'u2', name: 'Meet Gangwal', email: 'meet@spit.edu', role: ROLES.STUDENT, uid: '2025510018', avatar: 'MG', phone: '+91 98765 43211' },
   { id: 'u3', name: 'Priya Sharma', email: 'priya@spit.edu', role: ROLES.STUDENT, uid: '2025510020', avatar: 'PS', phone: '+91 98765 43212' },
-  { id: 'u4', name: 'Ravi Thali', email: 'ravi.thali@spit.mess', role: ROLES.THALI_STAFF, avatar: 'RT', phone: '+91 98765 43213' },
-  { id: 'u5', name: 'Suresh Dishes', email: 'suresh.dishes@spit.mess', role: ROLES.DISHES_STAFF, avatar: 'SD', phone: '+91 98765 43214' },
-  { id: 'u6', name: 'Mess Admin', email: 'admin@spit.mess', role: ROLES.ADMIN, avatar: 'MA', phone: '+91 98765 43215' },
+  { id: 'u4', name: 'Mess Admin', email: 'admin@spit.mess', role: ROLES.ADMIN, avatar: 'MA', phone: '+91 98765 43215' },
 ];
 
 // ─── Menu Items ──────────────────────────────────────────────────────────────

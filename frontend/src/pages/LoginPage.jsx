@@ -5,36 +5,123 @@ import { ROLES } from '../data/mockData';
 import { Logo } from '../components/Shared';
 
 const ROLE_OPTIONS = [
-  { role: ROLES.STUDENT, label: 'Student', desc: 'Order meals, view menu, track orders', icon: GraduationCap, color: 'var(--brand-primary)', email: 'aryan@spit.edu' },
-  { role: ROLES.THALI_STAFF, label: 'Thali Counter', desc: 'View thali orders, scan QR codes', icon: Utensils, color: 'var(--color-success)', email: 'ravi.thali@spit.mess' },
-  { role: ROLES.DISHES_STAFF, label: 'Dishes Counter', desc: 'View dish orders, mark as served', icon: ShoppingCart, color: 'var(--color-info)', email: 'suresh.dishes@spit.mess' },
-  { role: ROLES.ADMIN, label: 'Mess Admin', desc: 'Manage menu, view analytics, monitor ops', icon: Shield, color: 'var(--brand-secondary)', email: 'admin@spit.mess' },
+  { role: ROLES.STUDENT, label: 'Student', desc: 'Order meals, view menu, track orders', icon: GraduationCap, color: 'var(--brand-primary)', email: 'aryan@spit.edu', password: 'password123' },
+  { role: ROLES.ADMIN, label: 'Mess Admin', desc: 'Manage menu, view analytics, manage orders', icon: Shield, color: 'var(--brand-secondary)', email: 'admin@spit.mess', password: 'admin123' },
 ];
 
 export default function LoginPage() {
-  const { loginByRole } = useApp();
+  const { loginByRole, setRealUser } = useApp();
   const [selectedRole, setSelectedRole] = useState(ROLES.STUDENT);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('aryan@spit.edu');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('password123');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleRoleSelect = (r) => {
     setSelectedRole(r.role);
-    setEmail(r.email);
+    if (!isRegistering) {
+      setEmail(r.email);
+      setPassword(r.password || 'password123');
+    }
     setError('');
   };
 
-  const handleLogin = async (e) => {
+  const handleQuickLogin = async (r) => {
+    handleRoleSelect(r);
+    setLoading(true);
+    setError('');
+    try {
+      await loginByRole(r.role);
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    await new Promise(res => setTimeout(res, 800));
-    const user = loginByRole(selectedRole);
-    if (!user) setError('Invalid credentials. Please try again.');
-    setLoading(false);
+    setSuccess('');
+
+    try {
+      if (isRegistering) {
+        // POST to Spring Boot — role is intentionally excluded from the request
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, password })
+        });
+        let data = null;
+        try {
+          data = await response.json();
+        } catch (jsonErr) {}
+
+        if (response.ok) {
+          setSuccess('Account created successfully! You can now sign in.');
+          setIsRegistering(false);
+        } else {
+          setError(data?.error || 'Registration failed');
+        }
+      } else {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        let data = null;
+        try {
+          data = await response.json();
+        } catch (parseErr) {
+          // Response body was not JSON
+        }
+
+        if (response.ok && data?.token) {
+          // Map backend role (ROLE_USER) to frontend role string for UI routing
+          const frontendRole = mapBackendRole(data.role, selectedRole);
+          // Pass JWT token to context for authenticated API calls
+          setRealUser({
+            id: data.userId,
+            name: data.name,
+            email: data.email,
+            role: frontendRole,
+          }, data.token);  // token stored securely in context
+        } else if (response.status === 401) {
+          setError(data?.error || 'Invalid email or password');
+        } else if (response.status === 403) {
+          setError(data?.error || 'Access denied: account not permitted');
+        } else if (response.status === 404) {
+          setError('Authentication endpoint not found (404)');
+        } else if (response.status >= 500) {
+          setError(data?.error || `Server error (${response.status}). Please check backend logs.`);
+        } else {
+          setError(data?.error || 'Login failed. Please check your credentials.');
+        }
+      }
+    } catch(err) {
+      setError("Cannot reach the backend server. Please verify Spring Boot is running on port 8080.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  /**
+   * Maps the backend role string to the frontend role constant.
+   * Student accounts have ROLE_USER or ROLE_STUDENT. Admin has ROLE_ADMIN.
+   * NOTE: This is for UI routing only — all access control is enforced server-side.
+   */
+  function mapBackendRole(backendRole, fallbackRole) {
+    if (backendRole === 'ROLE_ADMIN') return ROLES.ADMIN;
+    if (backendRole === 'ROLE_USER' || backendRole === 'ROLE_STUDENT') return ROLES.STUDENT;
+    return fallbackRole === ROLES.ADMIN ? ROLES.ADMIN : ROLES.STUDENT;
+  }
+
 
   return (
     <div className="auth-page">
@@ -81,7 +168,7 @@ export default function LoginPage() {
 
           {/* Tech Stack chips */}
           <div className="flex flex-wrap gap-sm">
-            {['Spring Boot', 'React', 'PostgreSQL', 'Kubernetes', 'Docker', 'Prometheus', 'Grafana', 'Terraform', 'AWS'].map(t => (
+            {['Spring Boot', 'React', 'MySQL', 'Kubernetes', 'Docker', 'Prometheus', 'Grafana', 'Terraform', 'AWS'].map(t => (
               <span key={t} className="badge badge-muted">{t}</span>
             ))}
           </div>
@@ -90,33 +177,54 @@ export default function LoginPage() {
         {/* Right – Auth Card */}
         <div className="auth-card">
           <div style={{ textAlign: 'center', marginBottom: 'var(--space-xl)' }}>
-            <div className="display-md" style={{ marginBottom: 6 }}>Welcome Back</div>
-            <div className="body-sm text-muted">Sign in to your MealSync account</div>
+            <div className="display-md" style={{ marginBottom: 6 }}>
+              {isRegistering ? 'Create Account' : 'Welcome Back'}
+            </div>
+            <div className="body-sm text-muted">
+              {isRegistering ? 'Register to start ordering' : 'Sign in to your MealSync account'}
+            </div>
           </div>
 
-          {/* Role Selector */}
-          <div className="mb-lg">
-            <div className="form-label mb-sm">Select Your Role</div>
-            <div className="grid grid-2 gap-sm">
-              {ROLE_OPTIONS.map(r => (
-                <div
-                  key={r.role}
-                  className={`role-card ${selectedRole === r.role ? 'selected' : ''}`}
-                  onClick={() => handleRoleSelect(r)}
-                >
-                  <div style={{ color: r.color, marginBottom: 4, display: 'flex', justifyContent: 'center' }}>
-                    <r.icon size={22} />
+          {/* Role Selector — Login only; Public registration is strictly for Students */}
+          {!isRegistering ? (
+            <div className="mb-lg">
+              <div className="form-label mb-sm">Sign In As</div>
+              <div className="grid grid-2 gap-sm">
+                {ROLE_OPTIONS.map(r => (
+                  <div
+                    key={r.role}
+                    className={`role-card ${selectedRole === r.role ? 'selected' : ''}`}
+                    onClick={() => handleRoleSelect(r)}
+                  >
+                    <div style={{ color: r.color, marginBottom: 4, display: 'flex', justifyContent: 'center' }}>
+                      <r.icon size={22} />
+                    </div>
+                    <div className="label" style={{ fontSize: '0.75rem' }}>{r.label}</div>
                   </div>
-                  <div className="label" style={{ fontSize: '0.75rem' }}>{r.label}</div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-            <div className="body-sm text-muted" style={{ marginTop: 8, textAlign: 'center' }}>
-              {ROLE_OPTIONS.find(r => r.role === selectedRole)?.desc}
+          ) : (
+            <div className="card-glass mb-lg" style={{ padding: '10px 14px', textAlign: 'center', borderColor: 'var(--brand-primary)' }}>
+              <span className="caption text-brand" style={{ fontWeight: 600 }}>🎓 Public Student Account Registration</span>
             </div>
-          </div>
+          )}
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+            {isRegistering && (
+              <div className="form-group">
+                <label className="form-label">Full Name</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Meet Gangwal"
+                  required
+                />
+              </div>
+            )}
+
             <div className="form-group">
               <label className="form-label">Email Address</label>
               <input
@@ -139,6 +247,8 @@ export default function LoginPage() {
                   onChange={e => setPassword(e.target.value)}
                   placeholder="Enter password"
                   style={{ paddingRight: 42 }}
+                  required
+                  minLength={6}
                 />
                 <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -147,43 +257,53 @@ export default function LoginPage() {
             </div>
 
             {error && <div className="alert alert-danger">{error}</div>}
+            {success && <div className="alert alert-success">{success}</div>}
 
             <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={loading} style={{ marginTop: 4 }}>
               {loading ? (
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div className="animate-spin" style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%' }} />
-                  Signing In...
+                  {isRegistering ? 'Creating...' : 'Signing In...'}
                 </span>
               ) : (
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  Sign In <ArrowRight size={18} />
+                  {isRegistering ? 'Create Account' : 'Sign In'} <ArrowRight size={18} />
                 </span>
               )}
             </button>
           </form>
 
+          <div style={{ textAlign: 'center', marginTop: 'var(--space-md)' }}>
+            <button 
+              type="button" 
+              className="btn btn-ghost btn-sm" 
+              onClick={() => { setIsRegistering(!isRegistering); setError(''); setSuccess(''); }}
+            >
+              {isRegistering ? 'Already have an account? Sign In' : 'Need an account? Register'}
+            </button>
+          </div>
+
           <div className="divider" />
 
-          {/* Quick demo access */}
+          {/* 1-Click Instant Login */}
           <div style={{ textAlign: 'center' }}>
-            <div className="caption text-muted mb-sm">Quick Demo Access</div>
+            <div className="caption text-muted mb-sm">⚡ 1-Click Instant Login (Live Database & JWT Auth)</div>
             <div className="flex gap-sm justify-center flex-wrap">
               {ROLE_OPTIONS.map(r => (
                 <button
                   key={r.role}
                   className="btn btn-ghost btn-sm"
-                  onClick={() => { handleRoleSelect(r); loginByRole(r.role); }}
+                  onClick={() => handleQuickLogin(r)}
+                  disabled={loading}
                 >
-                  <Zap size={12} />
-                  {r.label}
+                  <Zap size={12} color="var(--brand-primary)" />
+                  Sign In as {r.label}
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="caption text-muted" style={{ textAlign: 'center', marginTop: 'var(--space-lg)' }}>
-            SPIT Mumbai · Cloud Computing Mini Project<br />
-            Meet Gangwal & Aryan Dandekar
+            <div className="caption text-muted" style={{ fontSize: '0.72rem', marginTop: 8 }}>
+              Default credentials: <code>aryan@spit.edu</code> / <code>password123</code> &bull; <code>admin@spit.mess</code> / <code>admin123</code>
+            </div>
           </div>
         </div>
       </div>

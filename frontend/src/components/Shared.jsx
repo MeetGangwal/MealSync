@@ -4,6 +4,7 @@ import {
   LogOut, Menu, X, ChevronRight, Settings, Home,
   ClipboardList, BarChart3, QrCode, Star, Package,
   Clock, Users, Cpu, AlertTriangle, TrendingUp, Zap,
+  Store, CreditCard, Sun, Moon,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ROLES } from '../data/mockData';
@@ -63,7 +64,7 @@ export function StatusBadge({ status }) {
 
 // ─── Topbar ────────────────────────────────────────────────
 export function Topbar({ onMenuToggle }) {
-  const { currentUser, unreadCount, notifications, markAllRead, logout } = useApp();
+  const { currentUser, unreadCount, notifications, markAllRead, logout, theme, toggleTheme } = useApp();
   const [showNotifs, setShowNotifs] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchVal, setSearchVal] = useState('');
@@ -81,6 +82,16 @@ export function Topbar({ onMenuToggle }) {
       </div>
 
       <div className="topbar-right">
+        {/* Light / Dark Mode Toggle */}
+        <button
+          className="btn btn-ghost btn-icon"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          style={{ color: theme === 'dark' ? 'var(--color-warning)' : 'var(--brand-primary)' }}
+        >
+          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+
         {/* Notification Bell */}
         <div style={{ position: 'relative' }}>
           <button className="notification-btn" onClick={() => setShowNotifs(v => !v)}>
@@ -150,7 +161,7 @@ function NavItem({ icon: Icon, label, active, badge, onClick }) {
 }
 
 export function Sidebar({ currentPage, setPage }) {
-  const { currentUser, cartCount, unreadCount, activeOrders, thaliOrders, dishesOrders } = useApp();
+  const { currentUser, cartCount, activeOrders } = useApp();
   const role = currentUser?.role;
 
   const studentNav = [
@@ -163,40 +174,22 @@ export function Sidebar({ currentPage, setPage }) {
     { key: 'profile', label: 'My Profile', icon: User },
   ];
 
-  const thaliStaffNav = [
-    { key: 'staff-dashboard', label: 'Dashboard', icon: Home },
-    { key: 'thali-orders', label: 'Thali Orders', icon: ClipboardList, badge: thaliOrders.length },
-    { key: 'qr-scanner', label: 'QR Scanner', icon: QrCode },
-    { key: 'upcoming', label: 'Upcoming Demand', icon: TrendingUp },
-  ];
-
-  const dishesStaffNav = [
-    { key: 'staff-dashboard', label: 'Dashboard', icon: Home },
-    { key: 'dishes-orders', label: 'Dishes Orders', icon: ClipboardList, badge: dishesOrders.length },
-    { key: 'qr-scanner', label: 'QR Scanner', icon: QrCode },
-    { key: 'upcoming', label: 'Upcoming Demand', icon: TrendingUp },
-  ];
-
   const adminNav = [
-    { key: 'admin-dashboard', label: 'Dashboard', icon: Home },
-    { key: 'admin-orders', label: 'All Orders', icon: ClipboardList },
-    { key: 'menu-mgmt', label: 'Menu Management', icon: UtensilsCrossed },
+    { key: 'admin-dashboard', label: 'Overview', icon: Home },
+    { key: 'counter-sale', label: 'Counter Sale', icon: Store },
+    { key: 'payment-records', label: 'Payment Records', icon: CreditCard },
+    { key: 'admin-orders', label: 'Order Management', icon: ClipboardList },
+    { key: 'menu-mgmt', label: 'Product Catalog', icon: UtensilsCrossed },
     { key: 'slot-mgmt', label: 'Pickup Slots', icon: Clock },
     { key: 'analytics', label: 'Analytics', icon: BarChart3 },
     { key: 'forecasting', label: 'Demand Forecast', icon: TrendingUp },
-    { key: 'wastage', label: 'Wastage Report', icon: AlertTriangle },
-    { key: 'staff-mgmt', label: 'Staff Management', icon: Users },
     { key: 'monitoring', label: 'Cloud Monitoring', icon: Cpu },
     { key: 'settings', label: 'Settings', icon: Settings },
   ];
 
-  const nav = role === ROLES.STUDENT ? studentNav
-    : role === ROLES.THALI_STAFF ? thaliStaffNav
-    : role === ROLES.DISHES_STAFF ? dishesStaffNav
-    : adminNav;
-
-  const roleLabel = role === ROLES.STUDENT ? 'Student' : role === ROLES.THALI_STAFF ? 'Thali Counter' : role === ROLES.DISHES_STAFF ? 'Dishes Counter' : 'Mess Admin';
-  const roleColor = role === ROLES.ADMIN ? 'badge-danger' : role === ROLES.STUDENT ? 'badge-primary' : 'badge-success';
+  const nav = role === ROLES.ADMIN ? adminNav : studentNav;
+  const roleLabel = role === ROLES.ADMIN ? 'Mess Admin' : 'Student';
+  const roleColor = role === ROLES.ADMIN ? 'badge-danger' : 'badge-primary';
 
   return (
     <div className="sidebar">

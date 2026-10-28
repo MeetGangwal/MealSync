@@ -31,6 +31,9 @@ public class User {
 
     private String role; // STUDENT, STAFF, or ADMIN
 
+    private String phone;
+    private String uid;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 }
