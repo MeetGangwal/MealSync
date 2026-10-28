@@ -4,6 +4,8 @@ import com.mealsync.model.Meal;
 import com.mealsync.model.User;
 import com.mealsync.repository.MealRepository;
 import com.mealsync.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
@@ -22,8 +24,17 @@ public class DataSeeder implements CommandLineRunner {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    @Value("${mealsync.seed.demo-users:true}")
+    private static final Logger logger = LoggerFactory.getLogger(DataSeeder.class);
+
+    /** Demo accounts are opt-in (MEALSYNC_SEED_DEMO_USERS=true); never enabled by default. */
+    @Value("${mealsync.seed.demo-users:false}")
     private boolean seedDemoUsers;
+
+    @Value("${mealsync.seed.demo-student-password:}")
+    private String demoStudentPassword;
+
+    @Value("${mealsync.seed.demo-admin-password:}")
+    private String demoAdminPassword;
 
     @Override
     public void run(String... args) throws Exception {
@@ -82,10 +93,16 @@ public class DataSeeder implements CommandLineRunner {
         seedMealIfAbsent("Mango Lassi", "Rich, sweet yogurt smoothie infused with alphonso mango pulp", "beverages", 45.0, 50, true, "🥭");
         seedMealIfAbsent("Gulab Jamun (2 pcs)", "Warm melt-in-mouth milk-solid dumplings soaked in rose-cardamom sugar syrup", "snacks", 30.0, 70, true, "🍮");
 
-        // ── Default Demo Users (Safe & Idempotent, Environment-Configurable) ──────
+        // ── Demo Users (explicit opt-in only; passwords come from the environment) ──
         if (seedDemoUsers) {
-            seedUserIfAbsent("Aryan Student", "aryan@spit.edu", "password123", "ROLE_USER");
-            seedUserIfAbsent("Mess Admin", "admin@spit.mess", "admin123", "ROLE_ADMIN");
+            if (demoStudentPassword.isBlank() || demoAdminPassword.isBlank()) {
+                logger.warn("Demo user seeding is enabled but MEALSYNC_DEMO_STUDENT_PASSWORD or "
+                        + "MEALSYNC_DEMO_ADMIN_PASSWORD is not set; skipping demo users.");
+            } else {
+                seedUserIfAbsent("Aryan Student", "aryan@spit.edu", demoStudentPassword, "ROLE_USER");
+                seedUserIfAbsent("Mess Admin", "admin@spit.mess", demoAdminPassword, "ROLE_ADMIN");
+                logger.info("Demo users seeded (opt-in).");
+            }
         }
     }
 

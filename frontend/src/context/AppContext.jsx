@@ -279,54 +279,6 @@ export function AppProvider({ children }) {
     setCurrentUser(userData);
   }, []);
 
-  const loginByRole = useCallback(async (role) => {
-    // Authenticate with real backend credentials
-    const credentials = role === ROLES.ADMIN
-      ? { email: 'admin@spit.mess', password: 'admin123' }
-      : { email: 'aryan@spit.edu', password: 'password123' };
-
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
-      });
-
-      let data = null;
-      try {
-        data = await res.json();
-      } catch (parseErr) {
-        // Non-JSON response
-      }
-
-      if (res.ok && data?.token) {
-        const frontendRole = data.role === 'ROLE_ADMIN' ? ROLES.ADMIN : ROLES.STUDENT;
-        const userObj = {
-          id: data.userId,
-          name: data.name,
-          email: data.email,
-          role: frontendRole,
-          phone: data.phone || '',
-          uid: data.uid || '',
-        };
-        saveToken(data.token, userObj);
-        setCurrentUser(userObj);
-        return { success: true };
-      } else if (res.status === 401) {
-        throw new Error(data?.error || 'Invalid email or password');
-      } else if (res.status === 403) {
-        throw new Error(data?.error || 'Access denied: account not permitted');
-      } else {
-        throw new Error(data?.error || `Login failed (HTTP status ${res.status})`);
-      }
-    } catch (err) {
-      if (err.message && (err.message.includes('Invalid') || err.message.includes('Access denied') || err.message.includes('Login failed'))) {
-        throw err;
-      }
-      throw new Error('Cannot reach the backend server. Please verify Spring Boot is running on port 8080.');
-    }
-  }, []);
-
   const logout = useCallback(() => {
     saveToken(null, null);
     setCurrentUser(null);
@@ -681,7 +633,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       // Auth
-      currentUser, loginByRole, logout, setRealUser,
+      currentUser, logout, setRealUser,
       // Cart
       cart, addToCart, removeFromCart, clearCart, cartTotal, cartCount,
       // Orders

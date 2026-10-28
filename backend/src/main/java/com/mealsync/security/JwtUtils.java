@@ -44,8 +44,8 @@ public class JwtUtils {
         byte[] keyBytes = jwtSecret.getBytes(StandardCharsets.UTF_8);
         if (keyBytes.length < 32) {
             throw new IllegalStateException(
-                "JWT signing secret is too weak: only " + keyBytes.length + " bytes (" + (keyBytes.length * 8) + 
-                " bits). HS256 requires at least 32 bytes (256 bits). Value was: '" + jwtSecret + "'."
+                "JWT signing secret is too weak: only " + keyBytes.length + " bytes (" + (keyBytes.length * 8) +
+                " bits). HS256 requires at least 32 bytes (256 bits)."
             );
         }
     }
@@ -105,16 +105,9 @@ public class JwtUtils {
                 .build()
                 .parseClaimsJws(token);
             return true;
-        } catch (MalformedJwtException e) {
-            logger.warn("JWT validation failed - malformed token: {}", e.getMessage());
-        } catch (ExpiredJwtException e) {
-            logger.warn("JWT validation failed - token expired: {}", e.getMessage());
-        } catch (UnsupportedJwtException e) {
-            logger.warn("JWT validation failed - unsupported token: {}", e.getMessage());
-        } catch (IllegalArgumentException e) {
-            logger.warn("JWT validation failed - empty claims: {}", e.getMessage());
-        } catch (JwtException e) {
-            logger.warn("JWT validation failed: {}", e.getMessage());
+        } catch (JwtException | IllegalArgumentException e) {
+            // Log the failure type only: exception messages can echo token header/claim contents.
+            logger.warn("JWT validation failed: {}", e.getClass().getSimpleName());
         }
         return false;
     }

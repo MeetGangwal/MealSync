@@ -59,7 +59,7 @@
   - `UserServiceTest`: 11/11 passed
   - `PaymentServiceTest`: 5/5 passed
 - **Frontend Production Build**: `npm run build` completed successfully (`dist/index.html`, `dist/assets/index-*.css`, `dist/assets/index-*.js`)
-- **End-to-End Scenarios**: All 14 automated steps in `scratch/e2e_verification.sh` passed against live MySQL database.
+- **End-to-End Scenarios**: Covered by the MySQL integration tests in `backend/src/test/java/com/mealsync/integration/` (Testcontainers).
 
 ---
 

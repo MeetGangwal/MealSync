@@ -155,14 +155,15 @@ public class AuthController {
 
         } catch (AuthenticationException e) {
             // Bad credentials or invalid login details
-            logger.warn("Authentication failed for email '{}': {}", email, e.getMessage());
+            // Do not log the submitted email or exception details (user enumeration / PII in logs).
+            logger.warn("Authentication failed: {}", e.getClass().getSimpleName());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid email or password"));
         } catch (Exception e) {
-            // Unexpected internal error (e.g. JWT signing misconfiguration)
-            logger.error("Internal error during login for email '{}': {}", email, e.getMessage(), e);
+            // Unexpected internal error (e.g. JWT signing misconfiguration); details stay in server logs only.
+            logger.error("Internal error during login", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Internal authentication error: " + e.getMessage()));
+                    .body(Map.of("error", "Internal authentication error"));
         }
     }
 

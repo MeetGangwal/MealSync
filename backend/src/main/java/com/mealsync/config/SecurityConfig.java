@@ -156,6 +156,12 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // Allow CORS preflight requests without authentication
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                // Actuator health and Prometheus metrics: served only on the internal management
+                // port (MANAGEMENT_PORT, default 8081), which is not published or routed publicly.
+                .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**",
+                        "/actuator/prometheus").permitAll()
+                // Error dispatches keep their real status (e.g. 404/500) instead of becoming 401
+                .requestMatchers("/error").permitAll()
                 // Public: authentication endpoints (register, login)
                 .requestMatchers("/api/auth/login", "/api/auth/register").permitAll()
                 // Authenticated: user profile

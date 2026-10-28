@@ -1,21 +1,23 @@
 import { useState } from 'react';
-import { ShoppingCart, User, GraduationCap, Utensils, Shield, ArrowRight, Eye, EyeOff, Zap } from 'lucide-react';
+import { ShoppingCart, User, GraduationCap, Utensils, Shield, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ROLES } from '../data/mockData';
 import { Logo } from '../components/Shared';
 
 const ROLE_OPTIONS = [
-  { role: ROLES.STUDENT, label: 'Student', desc: 'Order meals, view menu, track orders', icon: GraduationCap, color: 'var(--brand-primary)', email: 'aryan@spit.edu', password: 'password123' },
-  { role: ROLES.ADMIN, label: 'Mess Admin', desc: 'Manage menu, view analytics, manage orders', icon: Shield, color: 'var(--brand-secondary)', email: 'admin@spit.mess', password: 'admin123' },
+  { role: ROLES.STUDENT, label: 'Student', desc: 'Order meals, view menu, track orders', icon: GraduationCap, color: 'var(--brand-primary)' },
+  { role: ROLES.ADMIN, label: 'Mess Admin', desc: 'Manage menu, view analytics, manage orders', icon: Shield, color: 'var(--brand-secondary)' },
 ];
 
+// No credentials are bundled into the frontend. Demo accounts (if enabled on the backend with
+// MEALSYNC_SEED_DEMO_USERS=true) are signed into with the passwords configured there.
 export default function LoginPage() {
-  const { loginByRole, setRealUser } = useApp();
+  const { setRealUser } = useApp();
   const [selectedRole, setSelectedRole] = useState(ROLES.STUDENT);
   const [isRegistering, setIsRegistering] = useState(false);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('aryan@spit.edu');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -23,24 +25,7 @@ export default function LoginPage() {
 
   const handleRoleSelect = (r) => {
     setSelectedRole(r.role);
-    if (!isRegistering) {
-      setEmail(r.email);
-      setPassword(r.password || 'password123');
-    }
     setError('');
-  };
-
-  const handleQuickLogin = async (r) => {
-    handleRoleSelect(r);
-    setLoading(true);
-    setError('');
-    try {
-      await loginByRole(r.role);
-    } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleSubmit = async (e) => {
@@ -281,29 +266,6 @@ export default function LoginPage() {
             >
               {isRegistering ? 'Already have an account? Sign In' : 'Need an account? Register'}
             </button>
-          </div>
-
-          <div className="divider" />
-
-          {/* 1-Click Instant Login */}
-          <div style={{ textAlign: 'center' }}>
-            <div className="caption text-muted mb-sm">⚡ 1-Click Instant Login (Live Database & JWT Auth)</div>
-            <div className="flex gap-sm justify-center flex-wrap">
-              {ROLE_OPTIONS.map(r => (
-                <button
-                  key={r.role}
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => handleQuickLogin(r)}
-                  disabled={loading}
-                >
-                  <Zap size={12} color="var(--brand-primary)" />
-                  Sign In as {r.label}
-                </button>
-              ))}
-            </div>
-            <div className="caption text-muted" style={{ fontSize: '0.72rem', marginTop: 8 }}>
-              Default credentials: <code>aryan@spit.edu</code> / <code>password123</code> &bull; <code>admin@spit.mess</code> / <code>admin123</code>
-            </div>
           </div>
         </div>
       </div>

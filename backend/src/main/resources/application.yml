@@ -2,22 +2,51 @@ spring:
   application:
     name: mealsync-backend
 
+  # Database connection: one convention (DB_*) shared by Docker Compose, Kubernetes and local runs.
+  # The localhost defaults apply only when running the backend directly on a developer machine;
+  # Compose sets DB_HOST=db and Kubernetes sets DB_HOST=mysql.
   datasource:
-    url: jdbc:mysql://localhost:3306/mealsync?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:mealsync}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
 
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: ${JPA_SHOW_SQL:false}
     properties:
       hibernate:
         format_sql: true
 
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
+
+# Actuator runs on a separate internal port that is not published by Compose or routed by the
+# Kubernetes ingress. Only health and Prometheus metrics are exposed.
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 jwt:
   secret: ${JWT_SECRET}
-  expirationMs: 86400000
+  expirationMs: ${JWT_EXPIRATION_MS:86400000}
+
+mealsync:
+  seed:
+    # Demo accounts are created only on explicit opt-in (MEALSYNC_SEED_DEMO_USERS=true),
+    # using passwords supplied through MEALSYNC_DEMO_STUDENT_PASSWORD / MEALSYNC_DEMO_ADMIN_PASSWORD.
+    demo-users: ${MEALSYNC_SEED_DEMO_USERS:false}
+    demo-student-password: ${MEALSYNC_DEMO_STUDENT_PASSWORD:}
+    demo-admin-password: ${MEALSYNC_DEMO_ADMIN_PASSWORD:}

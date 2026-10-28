@@ -36,12 +36,10 @@ elif [ -f "$BACKEND_DIR/.env" ]; then
   done < "$BACKEND_DIR/.env"
 fi
 
-# Set default username if unset
-export SPRING_DATASOURCE_USERNAME="${SPRING_DATASOURCE_USERNAME:-root}"
-
-# Check required database credentials
-if [ -z "$SPRING_DATASOURCE_PASSWORD" ]; then
-  echo "[WARNING] SPRING_DATASOURCE_PASSWORD is not set. Database connection may fail if MySQL requires a password."
+# Database settings use the DB_* convention (see .env.example). application.yml defaults
+# DB_HOST=localhost, DB_PORT=3306, DB_NAME=mealsync and DB_USERNAME=root for local runs.
+if [ -z "$DB_PASSWORD" ]; then
+  echo "[WARNING] DB_PASSWORD is not set. Database connection may fail if MySQL requires a password."
 fi
 
 # Check required JWT secret
@@ -52,7 +50,7 @@ if [ -z "$JWT_SECRET" ]; then
 fi
 
 if [ "${#JWT_SECRET}" -lt 32 ]; then
-  echo "[ERROR] JWT_SECRET is too short (${#JWT_SECRET} characters: '$JWT_SECRET')."
+  echo "[ERROR] JWT_SECRET is too short (${#JWT_SECRET} characters)."
   echo "JJWT HS256 requires at least 32 characters (256 bits). Please update .env or your shell environment."
   exit 1
 fi
