@@ -13,6 +13,15 @@ resources:
   - 07-hpa.yaml
   - 08-monitoring.yaml
 
+# Grafana dashboard provisioning (name suffix hashes roll Grafana when they change)
+configMapGenerator:
+  - name: grafana-dashboard-provider
+    files:
+      - grafana/dashboards.yaml
+  - name: grafana-dashboards
+    files:
+      - grafana/mealsync-backend-dashboard.json
+
 # The Secret "mealsync-secret" is NOT part of this kustomization, so applying it can
 # never overwrite real credentials with placeholders. Create it first (see README.md):
 #   kubectl create secret generic mealsync-secret -n mealsync --from-env-file=<your .env>

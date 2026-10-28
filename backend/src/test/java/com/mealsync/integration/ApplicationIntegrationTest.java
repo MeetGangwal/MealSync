@@ -1,5 +1,7 @@
 package com.mealsync.integration;
 
+import com.mealsync.config.DataSeeder;
+import com.mealsync.model.Meal;
 import com.mealsync.repository.MealRepository;
 import com.mealsync.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +25,12 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,6 +84,33 @@ class ApplicationIntegrationTest {
         ResponseEntity<List> res = rest.getForEntity(api("/api/meals"), List.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(res.getBody()).isNotEmpty();
+    }
+
+    @Autowired
+    DataSeeder dataSeeder;
+
+    @Test
+    @DisplayName("Concurrent seeding (e.g. several replicas starting together) creates no duplicate meals")
+    void concurrentSeedingCreatesNoDuplicates() throws Exception {
+        long before = mealRepository.count();
+        // Remove two catalogue rows so both seeders race to re-insert them
+        List<Meal> victims = mealRepository.findAll().stream()
+                .filter(m -> m.getName().equals("Vada Pav") || m.getName().equals("Masala Chai")).toList();
+        mealRepository.deleteAll(victims);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> runs = List.of(
+                pool.submit(() -> { start.await(); dataSeeder.run(); return null; }),
+                pool.submit(() -> { start.await(); dataSeeder.run(); return null; }));
+        start.countDown();
+        for (Future<?> f : runs) f.get(60, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        Map<String, Long> perName = mealRepository.findAll().stream()
+                .collect(Collectors.groupingBy(Meal::getName, Collectors.counting()));
+        assertThat(perName.values()).allMatch(n -> n == 1L);
+        assertThat(mealRepository.count()).isEqualTo(before);
     }
 
     @Test

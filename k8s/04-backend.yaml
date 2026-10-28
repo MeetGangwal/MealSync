@@ -54,6 +54,24 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+      # Wait until MySQL accepts TCP connections (it opens 3306 only after initialization),
+      # so the backend does not crash-loop on first start.
+      initContainers:
+        - name: wait-for-mysql
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z -w 2 mysql 3306; do echo waiting for mysql; sleep 2; done"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
       containers:
         - name: backend
           image: mealsync-backend:local

@@ -11,6 +11,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 @Component
 public class DataSeeder implements CommandLineRunner {
@@ -36,8 +44,53 @@ public class DataSeeder implements CommandLineRunner {
     @Value("${mealsync.seed.demo-admin-password:}")
     private String demoAdminPassword;
 
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private static final String SEED_LOCK = "mealsync_seed";
+    private static final int SEED_LOCK_TIMEOUT_SECONDS = 120;
+
+    /**
+     * Several backend replicas can start at the same time (e.g. Kubernetes), and the
+     * check-then-insert seeding below is not safe to run concurrently. A MySQL named lock,
+     * held on a dedicated connection, serializes it; the lock is released only after the
+     * seed transaction has committed, so the next replica sees the rows already inserted.
+     */
     @Override
     public void run(String... args) throws Exception {
+        try (Connection lockConnection = dataSource.getConnection()) {
+            acquireSeedLock(lockConnection);
+            try {
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> seed());
+            } finally {
+                releaseSeedLock(lockConnection);
+            }
+        }
+    }
+
+    private void acquireSeedLock(Connection connection) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement("SELECT GET_LOCK(?, ?)")) {
+            ps.setString(1, SEED_LOCK);
+            ps.setInt(2, SEED_LOCK_TIMEOUT_SECONDS);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next() || rs.getInt(1) != 1) {
+                    throw new IllegalStateException("Timed out waiting for the data-seeding lock");
+                }
+            }
+        }
+    }
+
+    private void releaseSeedLock(Connection connection) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement("SELECT RELEASE_LOCK(?)")) {
+            ps.setString(1, SEED_LOCK);
+            ps.execute();
+        }
+    }
+
+    private void seed() {
         // Safe, idempotent seeding: adds products only if they don't already exist by name.
         // Existing catalogue data is preserved.
 
