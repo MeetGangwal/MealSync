@@ -1,0 +1,3 @@
+---
+k3s_channel: stable
+k3s_install_script_dest: /tmp/k3s_install.sh

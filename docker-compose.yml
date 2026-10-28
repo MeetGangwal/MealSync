@@ -1,0 +1,185 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — Docker Compose
+# Branch: feat/cloud-native-deployment
+#
+# DATABASE CONFIGURATION ─────────────────────────────────────────────────────
+# MySQL 8.0 is the agreed final database for MealSync.
+#
+# IMPORTANT BACKEND DEPENDENCY (BLOCKER FOR MEET):
+# The current uncommitted backend working tree in git still contains
+# PostgreSQL driver (org.postgresql:postgresql) in backend/pom.xml and
+# PostgreSQLDialect in application.yml.
+#
+# Meet must revert pom.xml to `mysql-connector-j` and application.yml to
+# `org.hibernate.dialect.MySQLDialect` before launching the backend container
+# against this MySQL instance.
+#
+# SECRETS ────────────────────────────────────────────────────────────────────
+# Copy .env.example to .env and fill in real values before starting.
+# .env is git-ignored. Never commit it.
+#
+# START ──────────────────────────────────────────────────────────────────────
+#   cp .env.example .env   # then edit .env
+#   docker compose up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Database (MySQL 8.0) ───────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: mealsync-db
+    restart: unless-stopped
+    command:
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    environment:
+      MYSQL_DATABASE:      ${DB_NAME:-mealsync}
+      MYSQL_USER:          ${DB_USERNAME}
+      MYSQL_PASSWORD:      ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - mealsync-net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Spring Boot Backend ────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mealsync-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # ── Database ─────────────────────────────────────────────────────────
+      # DB_URL uses the Compose service name "db" and standard MySQL port 3306
+      DB_URL:      jdbc:mysql://db:3306/${DB_NAME:-mealsync}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      # ── JWT ──────────────────────────────────────────────────────────────
+      JWT_SECRET:        ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      # ── Server ───────────────────────────────────────────────────────────
+      SERVER_PORT: 8080
+      # ── Spring ───────────────────────────────────────────────────────────
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      # Expose directly for local development/testing; remove in production
+      - "8080:8080"
+    networks:
+      - mealsync-net
+
+  # ── React Frontend (Nginx) ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mealsync-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks:
+      - mealsync-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Prometheus ─────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: mealsync-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    ports:
+      # Bound to localhost only — not exposed to the internet
+      - "127.0.0.1:9090:9090"
+    networks:
+      - mealsync-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── cAdvisor (container metrics) ─────────────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: mealsync-cadvisor
+    restart: unless-stopped
+    # Privileges minimized: avoids full container root privileges while retaining read-only metrics collection
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "127.0.0.1:8090:8080"
+    networks:
+      - mealsync-net
+
+  # ── Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: mealsync-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_SERVER_ROOT_URL:         "http://localhost:3001"
+      # Disable telemetry
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      # Bound to localhost only
+      - "127.0.0.1:3001:3000"
+    networks:
+      - mealsync-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  db-data:
+    name: mealsync-db-data
+  prometheus-data:
+    name: mealsync-prometheus-data
+  grafana-data:
+    name: mealsync-grafana-data
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  mealsync-net:
+    name: mealsync-network
+    driver: bridge

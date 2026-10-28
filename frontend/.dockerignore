@@ -1,0 +1,14 @@
+# ── Frontend Docker Ignore ──────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+.env
+*.env.local
+.git
+.idea/
+.vscode/
+*.log
+npm-debug.log*
+yarn-debug.log*
+.DS_Store
+Thumbs.db

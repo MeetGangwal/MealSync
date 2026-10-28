@@ -1,0 +1,23 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync Master Orchestration Playbook (site.yml)
+# Provisions the target host from clean OS to running MealSync Kubernetes stack.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Master Infrastructure & Application Playbook
+  hosts: k8s_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common
+      tags: [common, bootstrap, security]
+
+    - role: docker
+      tags: [docker, runtime]
+
+    - role: k3s
+      tags: [k3s, kubernetes]
+
+    - role: mealsync
+      tags: [mealsync, app, deploy]

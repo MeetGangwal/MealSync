@@ -1,0 +1,14 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync Application Deployment Playbook (deploy.yml)
+# Fast redeployment and sync of Kubernetes workloads.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Deploy / Update MealSync Stack
+  hosts: k8s_nodes
+  become: true
+  gather_facts: false
+
+  roles:
+    - role: mealsync
+      tags: [mealsync, deploy]

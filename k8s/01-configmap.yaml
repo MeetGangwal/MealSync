@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mealsync-config
+  namespace: mealsync
+  labels:
+    app.kubernetes.io/name: mealsync
+    app.kubernetes.io/component: configuration
+    app.kubernetes.io/part-of: mealsync-platform
+data:
+  # Spring Boot server configuration
+  SERVER_PORT: "8080"
+  SPRING_PROFILES_ACTIVE: "docker"
+
+  # Database configuration (Kubernetes internal service DNS)
+  DB_HOST: "mysql"
+  DB_PORT: "3306"
+  DB_NAME: "mealsync"
+  DB_URL: "jdbc:mysql://mysql:3306/mealsync?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+
+  # Fallback DB URL for PostgreSQL (if current pom.xml / application.yml driver is unchanged by Meet)
+  POSTGRES_DB_URL: "jdbc:postgresql://db:5432/mealsync"
+
+  # Authentication token settings
+  JWT_EXPIRATION_MS: "86400000"
+
+  # Observability settings
+  GRAFANA_ADMIN_USER: "admin"

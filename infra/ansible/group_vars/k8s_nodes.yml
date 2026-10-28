@@ -1,0 +1,12 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — Kubernetes Nodes Variables (k8s_nodes.yml)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# K3s server flags (single-node, includes Traefik disabled if using custom Ingress or NodePort)
+k3s_server_args: >-
+  --write-kubeconfig-mode 644
+  --node-name mealsync-master
+  --flannel-backend=vxlan
+
+# Storage directory for in-cluster persistence
+k8s_manifests_dest_dir: "/opt/mealsync/k8s"

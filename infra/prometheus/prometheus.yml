@@ -1,0 +1,64 @@
+global:
+  scrape_interval:     15s   # How often to scrape targets
+  evaluation_interval: 15s   # How often to evaluate rules
+  scrape_timeout:      10s
+  external_labels:
+    project: mealsync
+    env:     local
+
+# ── Alerting ─────────────────────────────────────────────────────────────────
+# (No alertmanager configured yet — add in a future milestone)
+
+# ── Scrape configs ────────────────────────────────────────────────────────────
+scrape_configs:
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Container metrics via cAdvisor
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+    metrics_path: /metrics
+
+  # ── Spring Boot Actuator / Micrometer ──────────────────────────────────────
+  # STATUS: PENDING — Spring Boot Actuator + Micrometer Prometheus registry
+  # are NOT currently in pom.xml.
+  #
+  # Meet must add the following two dependencies to backend/pom.xml:
+  #
+  #   <dependency>
+  #     <groupId>org.springframework.boot</groupId>
+  #     <artifactId>spring-boot-starter-actuator</artifactId>
+  #   </dependency>
+  #   <dependency>
+  #     <groupId>io.micrometer</groupId>
+  #     <artifactId>micrometer-registry-prometheus</artifactId>
+  #     <scope>runtime</scope>
+  #   </dependency>
+  #
+  # And add to application.yml:
+  #
+  #   management:
+  #     endpoints:
+  #       web:
+  #         exposure:
+  #           include: health,prometheus
+  #         base-path: /actuator
+  #     endpoint:
+  #       health:
+  #         show-details: never
+  #     metrics:
+  #       export:
+  #         prometheus:
+  #           enabled: true
+  #
+  # Once done, uncomment this job:
+  #
+  # - job_name: mealsync-backend
+  #   metrics_path: /actuator/prometheus
+  #   static_configs:
+  #     - targets: ['backend:8080']
+  #   scrape_interval: 15s

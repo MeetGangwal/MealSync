@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — Example Ansible YAML Inventory
+# ─────────────────────────────────────────────────────────────────────────────
+all:
+  children:
+    k8s_nodes:
+      hosts:
+        mealsync-node-1:
+          ansible_host: 203.0.113.10
+          ansible_user: ubuntu
+          ansible_ssh_private_key_file: ~/.ssh/mealsync-key.pem
+    webservers:
+      hosts:
+        mealsync-node-1:
+    appservers:
+      hosts:
+        mealsync-node-1:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3

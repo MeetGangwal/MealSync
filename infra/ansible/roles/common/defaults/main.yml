@@ -1,0 +1,7 @@
+---
+common_ufw_rules:
+  - { port: '22', proto: 'tcp', rule: 'allow', comment: 'SSH access' }
+  - { port: '80', proto: 'tcp', rule: 'allow', comment: 'HTTP web traffic' }
+  - { port: '443', proto: 'tcp', rule: 'allow', comment: 'HTTPS traffic' }
+  - { port: '30080', proto: 'tcp', rule: 'allow', comment: 'MealSync Frontend NodePort' }
+  - { port: '6443', proto: 'tcp', rule: 'allow', comment: 'Kubernetes API server' }

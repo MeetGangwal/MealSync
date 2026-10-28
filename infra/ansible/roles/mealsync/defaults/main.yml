@@ -1,0 +1,4 @@
+---
+mealsync_k8s_source_dir: "{{ playbook_dir }}/../../k8s"
+mealsync_remote_k8s_dir: "/opt/mealsync/k8s"
+mealsync_namespace: mealsync

@@ -1,0 +1,14 @@
+# ── Backend Docker Ignore ───────────────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+.env
+*.env.local
+.git
+.idea/
+.vscode/
+*.iml
+*.log
+.DS_Store
+Thumbs.db

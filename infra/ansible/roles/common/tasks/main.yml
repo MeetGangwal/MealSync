@@ -1,0 +1,34 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync Ansible Role — Common System Hardening & Tools
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install common utility and security packages
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+
+- name: Configure UFW firewall rules
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ common_ufw_rules }}"
+  notify: Reload UFW
+
+- name: Ensure UFW firewall is enabled
+  community.general.ufw:
+    state: enabled
+    policy: deny
+
+- name: Ensure fail2ban service is running and enabled
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true

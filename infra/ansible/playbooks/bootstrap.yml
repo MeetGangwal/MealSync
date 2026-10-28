@@ -1,0 +1,20 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync Bootstrap Playbook (bootstrap.yml)
+# Hardens OS and configures Kubernetes runtime.
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Bootstrap Host & Kubernetes Runtime
+  hosts: k8s_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common
+      tags: [common, bootstrap]
+
+    - role: docker
+      tags: [docker]
+
+    - role: k3s
+      tags: [k3s]

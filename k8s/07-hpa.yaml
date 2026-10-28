@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — Horizontal Pod Autoscaler (HPA) for Backend
+#
+# PREREQUISITES FOR HPA:
+# 1. metrics-server MUST be installed and running in the cluster:
+#    - On Minikube:
+#        minikube addons enable metrics-server
+#    - On Docker Desktop / K3s / Kind:
+#        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+#      (Note: Docker Desktop / Kind may require --kubelet-insecure-tls flag on metrics-server)
+# 2. Pod resource requests MUST be configured on the target Deployment:
+#    - mealsync-backend has 'requests.cpu: 250m' configured in 04-backend.yaml.
+# 3. Verification:
+#    - Run 'kubectl get hpa -n mealsync'
+#    - TARGETS column should show '<current_percent>/70%'. If it shows '<unknown>/70%',
+#      the metrics-server is either missing, starting up, or unable to reach kubelet metrics.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mealsync-backend-hpa
+  namespace: mealsync
+  labels:
+    app.kubernetes.io/name: backend-hpa
+    app.kubernetes.io/component: autoscaler
+    app.kubernetes.io/part-of: mealsync-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mealsync-backend
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60

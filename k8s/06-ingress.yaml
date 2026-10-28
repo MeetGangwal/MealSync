@@ -1,0 +1,55 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — External & Local Access (Ingress + NodePort)
+#
+# Access Options:
+# 1. Ingress (Recommended for clusters with Ingress Controller like ingress-nginx):
+#    Directs traffic based on host/path to frontend and backend services.
+# 2. NodePort Service (Fallback for local minikube/Docker Desktop without Ingress):
+#    Exposes frontend directly on port 30080: http://localhost:30080
+# 3. Port Forward (Zero-dependency quick test):
+#    kubectl port-forward svc/frontend 3000:80 -n mealsync
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mealsync-ingress
+  namespace: mealsync
+  labels:
+    app.kubernetes.io/name: mealsync-ingress
+    app.kubernetes.io/part-of: mealsync-platform
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: 16m
+spec:
+  rules:
+    - host: mealsync.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+---
+# Optional NodePort Service for local bare-metal / minikube access without ingress-controller
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-nodeport
+  namespace: mealsync
+  labels:
+    app.kubernetes.io/name: frontend-nodeport
+    app.kubernetes.io/part-of: mealsync-platform
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+      protocol: TCP
+      name: http-web
+  selector:
+    app.kubernetes.io/name: frontend

@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — Ansible Global Group Variables (all.yml)
+# Non-sensitive variables and secure secret reference lookups.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Project identifiers
+project_name: mealsync
+environment_name: dev
+app_install_dir: /opt/mealsync
+
+# System configuration
+timezone: UTC
+common_packages:
+  - curl
+  - wget
+  - git
+  - ufw
+  - fail2ban
+  - htop
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - jq
+
+# Container runtime & Kubernetes (K3s) configuration
+k3s_version: "v1.29.3+k3s1"
+k3s_install_script_url: "https://get.k3s.io"
+kubeconfig_remote_path: "/etc/rancher/k3s/k3s.yaml"
+kubeconfig_local_path: "{{ playbook_dir }}/../../.kube/mealsync-kubeconfig.yaml"
+
+# Application ports
+frontend_port: 80
+frontend_nodeport: 30080
+backend_port: 8080
+monitoring_grafana_port: 3001
+
+# ── Secrets Management ──
+# Secrets are dynamically retrieved from environment variables at execution time.
+# Alternatively, encrypt in 'group_vars/vault.yml' using: ansible-vault create
+db_username: "{{ lookup('env', 'DB_USERNAME') | default('mealsync_user', true) }}"
+db_password: "{{ lookup('env', 'DB_PASSWORD') | default('placeholder_db_password', true) }}"
+db_root_password: "{{ lookup('env', 'DB_ROOT_PASSWORD') | default('placeholder_root_password', true) }}"
+jwt_secret: "{{ lookup('env', 'JWT_SECRET') | default('placeholder_jwt_secret_min_32_bytes_long', true) }}"
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('placeholder_grafana_password', true) }}"

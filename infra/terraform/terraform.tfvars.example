@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — Terraform Variables Configuration Example
+# Copy this file to 'terraform.tfvars' to customize your AWS deployment.
+# NOTE: 'terraform.tfvars' is git-ignored. Never commit real credentials.
+# ─────────────────────────────────────────────────────────────────────────────
+
+aws_region   = "us-east-1"
+project_name = "mealsync"
+environment  = "dev"
+
+# VPC & Subnet
+vpc_cidr           = "10.0.0.0/16"
+public_subnet_cidr = "10.0.1.0/24"
+
+# Compute
+instance_type = "t3.small" # 2 vCPU, 2GB RAM (~$15/mo or Free Tier eligible for t3.micro)
+ssh_key_name  = "mealsync-key" # Replace with your existing AWS Key Pair name
+
+# Security: Restrict admin SSH & K8s API to your personal IP
+admin_ip_cidr = "203.0.113.45/32" # Replace with your current public IP from https://checkip.amazonaws.com
+
+# Managed Database Option (Set to true to provision AWS RDS MySQL instead of in-cluster StatefulSet)
+enable_rds  = false
+db_name     = "mealsync"
+db_username = "mealsync_admin"
+# db_password = "replace_with_strong_password_if_enable_rds_is_true"
+
+# Tags
+common_tags = {
+  Project     = "MealSync"
+  Environment = "dev"
+  ManagedBy   = "Terraform"
+  Owner       = "Aryan Sagar Dandekar"
+  Course      = "Cloud Computing MCA Sem 3"
+}

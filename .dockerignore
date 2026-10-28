@@ -1,0 +1,37 @@
+# ── Version Control & Secrets ────────────────────────────────────────────────
+.git
+.gitignore
+.env
+.env.*
+*.env.local
+*.tfstate
+*.tfstate.*
+*.tfvars
+.vault-pass
+
+# ── Backend Build Artifacts ──────────────────────────────────────────────────
+backend/target/
+backend/.env
+**/*.class
+**/*.jar
+**/*.war
+
+# ── Frontend Build Artifacts ─────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.env
+npm-debug.log*
+yarn-debug.log*
+
+# ── Temporary / IDE / OS Files ───────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.log
+docs/
+infra/terraform/
+infra/ansible/

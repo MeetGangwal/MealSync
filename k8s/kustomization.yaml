@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mealsync
+
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.example.yaml
+  - 03-mysql.yaml
+  - 04-backend.yaml
+  - 05-frontend.yaml
+  - 06-ingress.yaml
+  - 07-hpa.yaml
+  - 08-monitoring.yaml
+
+# To use PostgreSQL instead of MySQL during testing with current uncommitted code:
+# replace 03-mysql.yaml with 03-postgres.yaml

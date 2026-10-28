@@ -1,0 +1,117 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MealSync — MySQL StatefulSet & Service (In-Cluster Database)
+# 
+# DATABASE NOTE:
+# The project specification defines MySQL as the primary database.
+# In the current working tree, backend pom.xml contains PostgreSQL driver
+# dependencies. When Meet aligns the backend with MySQL, this manifest provides
+# production-grade persistent database storage with a StatefulSet.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: mealsync
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: mealsync-platform
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+      name: mysql
+  selector:
+    app.kubernetes.io/name: mysql
+  clusterIP: None # Headless service for StatefulSet identity
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: mealsync
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: mealsync-platform
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: mealsync-platform
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: mealsync-config
+                  key: DB_NAME
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mealsync-secret
+                  key: DB_USERNAME
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mealsync-secret
+                  key: DB_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mealsync-secret
+                  key: DB_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - "-c"
+                - "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - "-c"
+                - "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD}"
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+        labels:
+          app.kubernetes.io/name: mysql
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

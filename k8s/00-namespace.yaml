@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mealsync
+  labels:
+    app.kubernetes.io/name: mealsync
+    app.kubernetes.io/part-of: mealsync-platform
+    app.kubernetes.io/managed-by: manual
