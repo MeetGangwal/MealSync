@@ -77,6 +77,9 @@ services:
       MEALSYNC_SEED_DEMO_USERS:       ${MEALSYNC_SEED_DEMO_USERS:-false}
       MEALSYNC_DEMO_STUDENT_PASSWORD: ${MEALSYNC_DEMO_STUDENT_PASSWORD:-}
       MEALSYNC_DEMO_ADMIN_PASSWORD:   ${MEALSYNC_DEMO_ADMIN_PASSWORD:-}
+      # ── First administrator: promotes an already-registered account ──
+      MEALSYNC_BOOTSTRAP_ADMIN_EMAIL: ${MEALSYNC_BOOTSTRAP_ADMIN_EMAIL:-}
+      MEALSYNC_TIME_ZONE:             ${MEALSYNC_TIME_ZONE:-Asia/Kolkata}
     ports:
       # API exposed directly for local development/testing; remove in production
       - "${BACKEND_HOST_PORT:-8080}:8080"

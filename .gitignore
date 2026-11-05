@@ -70,3 +70,6 @@ yarn-error.log*
 jwt-secret.txt
 *.secret.txt
 .AppleDouble
+
+# ── Local tool settings ──────────────────────────────────────────────────────
+.claude/

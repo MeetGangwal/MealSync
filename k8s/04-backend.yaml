@@ -103,6 +103,16 @@ spec:
                 configMapKeyRef:
                   name: mealsync-config
                   key: MEALSYNC_SEED_DEMO_USERS
+            - name: MEALSYNC_BOOTSTRAP_ADMIN_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: mealsync-config
+                  key: MEALSYNC_BOOTSTRAP_ADMIN_EMAIL
+            - name: MEALSYNC_TIME_ZONE
+              valueFrom:
+                configMapKeyRef:
+                  name: mealsync-config
+                  key: MEALSYNC_TIME_ZONE
 
             # ── Database Connection (service "mysql") ──
             - name: DB_HOST

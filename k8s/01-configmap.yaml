@@ -22,5 +22,9 @@ data:
   # Demo accounts are never seeded in the cluster
   MEALSYNC_SEED_DEMO_USERS: "false"
 
+  # First administrator: email of an already-registered account to promote at start-up
+  MEALSYNC_BOOTSTRAP_ADMIN_EMAIL: ""
+  MEALSYNC_TIME_ZONE: "Asia/Kolkata"
+
   # Observability settings
   GRAFANA_ADMIN_USER: "admin"
