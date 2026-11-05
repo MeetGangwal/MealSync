@@ -1,278 +1,398 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useApp } from '../context/AppContext';
-import { SectionHeader, ProgressBar } from '../components/Shared';
-import { Star, Package, Pause, Play, SkipForward, Search, Edit3, Save, X, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import {
+  SectionHeader, ProgressBar, Modal, Spinner, EmptyState, MealImage, StatusBadge, ConfirmDialog,
+} from '../components/Shared';
+import { isOrderable } from '../lib/cart';
+import { formatDateTime } from '../lib/format';
+import {
+  MenuCard, MenuFilters, QuantityStepper, categoryLabel, categoryCounts, counterFor, stockText,
+} from '../components/MenuCatalog';
+import {
+  Pause, Play, SkipForward, Pencil, X, AlertTriangle, RefreshCw, Plus, ShoppingBag, Info,
+  SearchX, CalendarX, Ticket, CircleAlert, ArrowRight, ClipboardList,
+} from 'lucide-react';
 
+// ─── Today's menu ──────────────────────────────────────────
 export function LiveMenuPage({ setPage }) {
-  const { menuItems } = useApp();
+  const { liveMenu: menuItems, menuStatus, fetchMeals, cart, addToCart, removeFromCart, cartCount, cartTotal, showToast } = useApp();
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
-
-  const categories = [
-    { key: 'all', label: 'All Items', icon: '🍽️' },
-    { key: 'thali', label: 'Thalis & Combos', icon: '🍱' },
-    { key: 'snacks', label: 'Snacks & Quick Bites', icon: '🍔' },
-    { key: 'south-indian', label: 'South Indian & Breakfast', icon: '🥞' },
-    { key: 'meals', label: 'Rice Bowls & Meals', icon: '🍛' },
-    { key: 'beverages', label: 'Beverages', icon: '🥤' },
-  ];
+  const [detailItem, setDetailItem] = useState(null);
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return menuItems.filter(item => {
       const matchCat = category === 'all' || item.category === category;
-      const matchSearch = !search.trim() ||
-        item.name.toLowerCase().includes(search.toLowerCase()) ||
-        (item.description && item.description.toLowerCase().includes(search.toLowerCase()));
+      const matchSearch = !q || item.name.toLowerCase().includes(q) || (item.description || '').toLowerCase().includes(q);
       return matchCat && matchSearch;
-    });
+    }).sort((a, b) => Number(isOrderable(b)) - Number(isOrderable(a)));
   }, [menuItems, category, search]);
 
+  const counts = useMemo(() => categoryCounts(menuItems), [menuItems]);
+  const qtyInCart = (id) => cart.find(c => c.menuItemId === id)?.qty || 0;
+
+  const add = (item) => {
+    const before = qtyInCart(item.id);
+    if (before >= item.qty) { showToast(`No more ${item.name} in stock.`, 'info'); return; }
+    addToCart(item);
+    if (before === 0) showToast(`${item.name} added to your order.`);
+  };
+  const remove = (item) => removeFromCart(item.id);
+
+  // Keep the dialog in sync with live stock
+  const liveDetail = detailItem ? menuItems.find(m => m.id === detailItem.id) || detailItem : null;
+
   return (
-    <div>
+    <div className={cartCount > 0 ? 'has-cart-bar' : ''}>
       <SectionHeader
-        title="Live Campus Menu"
-        subtitle="Real-time kitchen inventory for our single food counter"
-        actions={
-          <div className="flex items-center gap-sm">
-            <div className="status-dot online pulse" />
-            <span className="body-sm text-success">Live Kitchen Sync</span>
-          </div>
-        }
+        title="Today’s menu"
+        subtitle="Prices and remaining portions come straight from the kitchen. Add dishes, then choose a pickup slot."
+        actions={cartCount > 0 && (
+          <button type="button" className="btn btn-primary" onClick={() => setPage('order')}>
+            <ShoppingBag size={16} aria-hidden="true" /> Review order · ₹{cartTotal}
+          </button>
+        )}
       />
 
-      {/* Filter and Search Bar */}
-      <div className="flex gap-md mb-lg flex-wrap items-center">
-        <div className="search-bar" style={{ flex: 1, minWidth: 240 }}>
-          <Search size={16} className="search-icon" />
-          <input
-            placeholder="Search live menu..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+      <MenuFilters search={search} onSearch={setSearch} category={category} onCategory={setCategory} counts={counts} />
+
+      {menuStatus === 'error' && menuItems.length === 0 ? (
+        <div className="alert alert-danger" role="alert">
+          <CircleAlert size={16} aria-hidden="true" />
+          <span>The menu could not be loaded. Check your connection and try again.</span>
+          <button type="button" className="btn btn-outline btn-sm" onClick={fetchMeals}>Retry</button>
         </div>
-        <div className="tab-list" style={{ overflowX: 'auto', whiteSpace: 'nowrap' }}>
-          {categories.map(c => (
-            <div
-              key={c.key}
-              className={`tab-item ${category === c.key ? 'active' : ''}`}
-              onClick={() => setCategory(c.key)}
-            >
-              <span style={{ marginRight: 6 }}>{c.icon}</span>
-              {c.label}
-            </div>
+      ) : menuItems.length === 0 ? (
+        <div className="menu-grid" aria-busy="true" aria-label="Loading the menu">
+          {Array.from({ length: 8 }, (_, i) => <div key={i} className="skeleton" style={{ aspectRatio: '4 / 5' }} />)}
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={SearchX} title="No dishes match" message="Try another keyword or category."
+          action={<button type="button" className="btn btn-outline btn-sm" onClick={() => { setSearch(''); setCategory('all'); }}>Clear filters</button>} />
+      ) : (
+        <div className="menu-grid">
+          {filtered.map(item => (
+            <MenuCard key={item.id} item={item} qty={qtyInCart(item.id)}
+              onAdd={() => add(item)} onRemove={() => remove(item)} onDetails={() => setDetailItem(item)} />
           ))}
         </div>
-      </div>
-
-      <div className="grid grid-3 gap-md">
-        {filtered.map(item => (
-          <LiveMenuItem key={item.id} item={item} onOrder={() => setPage('order')} />
-        ))}
-      </div>
-
-      {filtered.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-sm)' }}>🍲</div>
-          <div className="heading-md mb-xs">No items found</div>
-          <div className="body-sm text-muted">Try selecting a different category or clearing your search term.</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LiveMenuItem({ item, onOrder }) {
-  const soldOut = !item.available || item.qty === 0;
-  const initial = item.initialQty || 100;
-  const pct = Math.min(100, Math.round((item.qty / initial) * 100));
-  const variant = soldOut ? 'danger' : pct < 25 ? 'warning' : 'success';
-
-  return (
-    <div className={`card ${soldOut ? 'opacity-50' : ''}`} style={{ position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-      {soldOut && (
-        <div style={{ position: 'absolute', top: 12, right: 12, background: 'var(--grad-danger)', color: '#fff', fontSize: '0.65rem', fontWeight: 700, padding: '3px 8px', borderRadius: 20, letterSpacing: '0.1em' }}>
-          SOLD OUT
-        </div>
-      )}
-      {item.popular && !soldOut && (
-        <div style={{ position: 'absolute', top: 12, right: 12, background: 'var(--grad-warning)', color: '#0A0B14', fontSize: '0.65rem', fontWeight: 700, padding: '3px 8px', borderRadius: 20 }}>
-          🔥 Popular
-        </div>
       )}
 
-      <div>
-        <div style={{ fontSize: '2.8rem', marginBottom: 'var(--space-sm)', textAlign: 'center' }}>{item.emoji || '🍽️'}</div>
-        <div className="heading-md mb-xs" style={{ textAlign: 'center' }}>{item.name}</div>
-        <div className="caption text-muted mb-md" style={{ textAlign: 'center', minHeight: 36, lineHeight: 1.4 }}>
-          {item.description}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex justify-between items-center mb-md">
-          <span className="display-md text-brand">₹{item.price}</span>
-          <span className="caption text-muted">⭐ {item.rating || '4.5'}</span>
-        </div>
-
-        <div className="mb-sm">
-          <div className="flex justify-between caption mb-xs">
-            <span className="text-muted">Kitchen Stock</span>
-            <span className={soldOut ? 'text-danger' : pct < 25 ? 'text-warning' : 'text-success'}>
-              {soldOut ? '0 available' : `${item.qty} left`}
-            </span>
+      {cartCount > 0 && (
+        <div className="cart-bar" role="region" aria-label="Your order">
+          <div className="cart-bar-summary">
+            <ShoppingBag size={18} aria-hidden="true" />
+            <span><strong>{cartCount}</strong> item{cartCount === 1 ? '' : 's'} · <strong>₹{cartTotal}</strong></span>
           </div>
-          <ProgressBar value={item.qty} max={initial} variant={variant} />
+          <button type="button" className="btn btn-primary" onClick={() => setPage('order')}>Review order</button>
         </div>
+      )}
 
-        <button
-          className={`btn btn-full ${soldOut ? 'btn-ghost' : 'btn-primary'}`}
-          disabled={soldOut}
-          onClick={onOrder}
-          style={{ marginTop: 'var(--space-sm)' }}
-        >
-          {soldOut ? 'Sold Out' : 'Order Now →'}
-        </button>
-      </div>
+      {liveDetail && (
+        <Modal title={liveDetail.name} onClose={() => setDetailItem(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setDetailItem(null)}>Close</button>
+              {isOrderable(liveDetail) && qtyInCart(liveDetail.id) === 0 && (
+                <button type="button" className="btn btn-primary" onClick={() => add(liveDetail)}><Plus size={16} aria-hidden="true" /> Add to order</button>
+              )}
+              {qtyInCart(liveDetail.id) > 0 && (
+                <button type="button" className="btn btn-primary" onClick={() => { setDetailItem(null); setPage('order'); }}>Review order</button>
+              )}
+            </>
+          }>
+          <div className="item-detail">
+            <MealImage item={liveDetail} alt={liveDetail.name} />
+            {liveDetail.description && <p className="body-md text-secondary">{liveDetail.description}</p>}
+            <dl className="detail-list">
+              <div><dt>Price</dt><dd>₹{liveDetail.price}</dd></div>
+              <div><dt>Category</dt><dd>{categoryLabel(liveDetail.category)}</dd></div>
+              <div><dt>Collect at</dt><dd>{counterFor(liveDetail.category)}</dd></div>
+              <div><dt>Availability</dt><dd className={isOrderable(liveDetail) ? '' : 'text-danger'}>{stockText(liveDetail)}</dd></div>
+            </dl>
+            {qtyInCart(liveDetail.id) > 0 && (
+              <div className="flex items-center justify-between gap-md">
+                <span className="body-sm text-secondary">In your order</span>
+                <QuantityStepper name={liveDetail.name} qty={qtyInCart(liveDetail.id)} max={liveDetail.qty} onAdd={() => add(liveDetail)} onRemove={() => remove(liveDetail)} />
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
+// ─── Meal plans (subscriptions) ────────────────────────────
+const PAYMENT_METHODS = [
+  { value: 'UPI', label: 'UPI' },
+  { value: 'CARD', label: 'Debit / credit card' },
+  { value: 'MESS_WALLET', label: 'Mess wallet' },
+];
 
-// ─── Subscription Page ────────────────────────────────────
+const STATUS_BADGE = { ACTIVE: ['badge-success', 'Active'], PAUSED: ['badge-warning', 'Paused'], EXPIRED: ['badge-muted', 'Expired'] };
+
+function formatDate(iso) {
+  if (!iso) return '';
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export function SubscriptionPage() {
-  const { subscriptions } = useApp();
+  const { subscriptionPlans, subscriptions, fetchSubscriptions, subscribeToPlan, changeSubscription, showToast } = useApp();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [busy, setBusy] = useState(null); // `${id}:${action}` or `subscribe`
+  const [error, setError] = useState('');
+  const [confirmPlan, setConfirmPlan] = useState(null);
+  const [payMethod, setPayMethod] = useState('UPI');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      await fetchSubscriptions();
+    } catch (e) {
+      setLoadError(e.message || 'Meal plans could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchSubscriptions]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const live = subscriptions.filter(s => s.status === 'ACTIVE' || s.status === 'PAUSED');
+  const past = subscriptions.filter(s => s.status === 'EXPIRED');
+  const livePlanCodes = new Set(live.map(s => s.planCode));
+
+  const act = async (sub, action, label) => {
+    setBusy(`${sub.id}:${action}`);
+    setError('');
+    const res = await changeSubscription(sub.id, action);
+    setBusy(null);
+    if (res.error) setError(res.error);
+    else showToast(`${sub.planName}: ${label}.`);
+  };
+
+  const confirmSubscribe = async () => {
+    setBusy('subscribe');
+    setError('');
+    const res = await subscribeToPlan(confirmPlan.code, payMethod);
+    setBusy(null);
+    if (res.error) {
+      setError(res.error);
+    } else {
+      showToast(`Subscribed to ${confirmPlan.name}. Test payment ${res.subscription.transactionId || ''} recorded.`);
+    }
+    setConfirmPlan(null);
+  };
 
   return (
     <div>
-      <SectionHeader title="Meal Subscriptions" subtitle="Manage your monthly meal plans" />
+      <SectionHeader title="Meal plans" subtitle="Monthly plans for regular meals. Pause, resume or skip a day — changes are saved to your account." />
 
-      <div className="grid grid-2 gap-lg mb-xl">
-        {subscriptions.map(plan => (
-          <div key={plan.id} className={`card ${plan.status === 'active' ? '' : 'opacity-50'}`} style={{ border: `2px solid ${plan.status === 'active' ? 'var(--brand-primary)' : 'var(--border-subtle)'}` }}>
-            <div className="flex justify-between items-start mb-md">
-              <div>
-                <div className="heading-lg">{plan.name}</div>
-                <div className="body-sm text-muted">{plan.days} · {plan.meals}</div>
-              </div>
-              <div>
-                <span className={`badge ${plan.status === 'active' ? 'badge-success' : 'badge-muted'}`}>{plan.status}</span>
-                <div className="heading-md text-brand mt-xs">₹{plan.price}<span className="caption text-muted">/month</span></div>
-              </div>
-            </div>
-
-            {plan.status === 'active' && (
-              <>
-                <div className="grid grid-3 gap-sm mb-md" style={{ textAlign: 'center' }}>
-                  <div style={{ background: 'var(--bg-elevated)', padding: 12, borderRadius: 10 }}>
-                    <div className="heading-lg text-success">{plan.used}</div>
-                    <div className="caption text-muted">Used</div>
-                  </div>
-                  <div style={{ background: 'var(--bg-elevated)', padding: 12, borderRadius: 10 }}>
-                    <div className="heading-lg text-brand">{plan.totalMeals - plan.used - plan.skipped}</div>
-                    <div className="caption text-muted">Remaining</div>
-                  </div>
-                  <div style={{ background: 'var(--bg-elevated)', padding: 12, borderRadius: 10 }}>
-                    <div className="heading-lg text-warning">{plan.skipped}</div>
-                    <div className="caption text-muted">Skipped</div>
-                  </div>
-                </div>
-                <ProgressBar value={plan.used + plan.skipped} max={plan.totalMeals} variant="primary" label="Plan usage" showValue />
-                <div className="flex gap-sm mt-md">
-                  <button className="btn btn-ghost btn-sm"><Pause size={14} /> Skip Today</button>
-                  <button className="btn btn-ghost btn-sm"><SkipForward size={14} /> Pause Plan</button>
-                </div>
-              </>
-            )}
-
-            {plan.status === 'inactive' && (
-              <button className="btn btn-primary btn-full"><Play size={16} /> Activate Plan</button>
-            )}
-          </div>
-        ))}
+      <div className="alert alert-info mb-lg">
+        <Info size={16} aria-hidden="true" />
+        <span>Plan payments use the MealSync <strong>test payment simulator</strong>. No real money is charged and no payment gateway is connected.</span>
       </div>
 
-      {/* Available Plans */}
-      <div className="card">
-        <h3 className="heading-lg mb-md">Available Plans</h3>
-        <div className="grid grid-3 gap-md">
-          {[
-            { name: 'Breakfast Only', price: 800, meals: 'Mon–Sat', desc: 'Daily morning breakfast' },
-            { name: 'Lunch + Dinner', price: 2400, meals: 'Mon–Fri', desc: 'Both meals, best value' },
-            { name: 'Full Board', price: 3200, meals: 'Mon–Sun', desc: 'All 3 meals daily' },
-          ].map(plan => (
-            <div key={plan.name} className="card" style={{ background: 'var(--bg-elevated)' }}>
-              <div className="heading-md mb-xs">{plan.name}</div>
-              <div className="body-sm text-muted mb-md">{plan.desc} · {plan.meals}</div>
-              <div className="heading-lg text-brand mb-md">₹{plan.price}<span className="caption text-muted">/month</span></div>
-              <button className="btn btn-outline btn-full btn-sm">Subscribe</button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+      {error && <div className="alert alert-danger mb-lg" role="alert"><CircleAlert size={16} aria-hidden="true" /><span>{error}</span></div>}
 
-// ─── QR Tickets Page ──────────────────────────────────────
-export function QRTicketsPage() {
-  const { myOrders } = useApp();
-  const activeOrders = myOrders.filter(o => o.status !== 'completed' && o.status !== 'cancelled');
-
-
-  return (
-    <div>
-      <SectionHeader title="My QR Tickets" subtitle="Show these at the counter to collect your food" />
-      {activeOrders.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">🎫</div>
-          <div className="heading-md">No active tickets</div>
-          <div className="body-sm text-muted">Place an order to get your QR ticket</div>
+      {loading ? (
+        <div className="card"><div className="loading-row" role="status"><Spinner /> Loading meal plans…</div></div>
+      ) : loadError ? (
+        <div className="alert alert-danger" role="alert">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>{loadError}</span>
+          <button type="button" className="btn btn-outline btn-sm" onClick={load}>Retry</button>
         </div>
       ) : (
-        <div className="grid grid-2 gap-lg">
-          {activeOrders.map(order => (
-            <div key={order.id} className="card" style={{ textAlign: 'center' }}>
-              <div className="heading-lg text-brand mb-xs">{order.id}</div>
-              <div className="body-sm text-secondary mb-md">{order.items.map(i => i.name).join(' + ')}</div>
-
-              <div style={{ display: 'inline-block', background: '#fff', padding: 16, borderRadius: 12, marginBottom: 'var(--space-md)', boxShadow: '0 4px 20px rgba(108,99,255,0.2)' }}>
-                <QRCodeSVG
-                  value={JSON.stringify({ orderId: order.id, userId: order.userId, slot: order.slotLabel })}
-                  size={160}
-                  bgColor="#ffffff"
-                  fgColor="#111221"
-                  level="H"
-                />
+        <>
+          <section className="section" aria-labelledby="my-plans">
+            <div className="section-head"><h2 id="my-plans" className="heading-lg">Your plans</h2></div>
+            {live.length === 0 ? (
+              <EmptyState icon={CalendarX} title="No active meal plan" message="Choose a plan below. You can pause it or skip a day whenever you need to." />
+            ) : (
+              <div className="card-grid">
+                {live.map(sub => <SubscriptionCard key={sub.id} sub={sub} busy={busy} onAction={act} />)}
               </div>
+            )}
+          </section>
 
-              <div className="card-glass" style={{ textAlign: 'left', padding: 12 }}>
-                <div className="flex justify-between"><span className="caption text-muted">Slot</span><span className="label">{order.slotLabel}</span></div>
-                <div className="flex justify-between"><span className="caption text-muted">Total</span><span className="label text-success">₹{order.total}</span></div>
-                <div className="flex justify-between"><span className="caption text-muted">Status</span><span className={`badge badge-sm ${order.status === 'ready' ? 'badge-success' : 'badge-warning'}`}>{order.status}</span></div>
+          <section className="section" aria-labelledby="plans">
+            <div className="section-head"><h2 id="plans" className="heading-lg">Available plans</h2></div>
+            {subscriptionPlans.length === 0 ? (
+              <p className="body-sm text-muted">No plans are offered at the moment.</p>
+            ) : (
+              <div className="card-grid">
+                {subscriptionPlans.map(plan => {
+                  const subscribed = livePlanCodes.has(plan.code);
+                  return (
+                    <article key={plan.code} className="card plan-card">
+                      <div className="flex flex-col gap-xs">
+                        <h3 className="heading-lg">{plan.name}</h3>
+                        <p className="body-sm text-muted">{plan.description}</p>
+                      </div>
+                      <dl className="detail-list compact">
+                        <div><dt>Meals</dt><dd>{plan.meals}</dd></div>
+                        <div><dt>Days</dt><dd>{describeDays(plan.servingDays)}</dd></div>
+                        <div><dt>Per month</dt><dd>{plan.mealsPerPeriod} meals</dd></div>
+                      </dl>
+                      <div className="plan-card-footer">
+                        <span className="price heading-lg">₹{plan.monthlyPrice}<span className="caption text-muted"> / month</span></span>
+                        {subscribed
+                          ? <span className="badge badge-success">Subscribed</span>
+                          : <button type="button" className="btn btn-primary btn-sm" disabled={busy !== null}
+                              onClick={() => { setPayMethod('UPI'); setConfirmPlan(plan); }}>Subscribe</button>}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
+            )}
+          </section>
 
-              {order.items.some(i => i.counter === 'thali') && (
-                <div className="alert alert-info mt-sm" style={{ textAlign: 'left' }}>
-                  🍱 Show at Thali Counter
+          {past.length > 0 && (
+            <details className="card">
+              <summary className="heading-sm">Past plans ({past.length})</summary>
+              <ul className="plain-list mt-md">
+                {past.map(s => (
+                  <li key={s.id} className="body-sm text-secondary">{s.planName} · {formatDate(s.startDate)} – {formatDate(s.endDate)} · {s.mealsSkipped} skipped</li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <p className="caption text-muted mt-lg">
+            Meals used are not counted yet: plan meals are not linked to counter pickup, so only skipped meals reduce the remaining count.
+          </p>
+        </>
+      )}
+
+      {confirmPlan && (
+        <Modal title={`Subscribe to ${confirmPlan.name}`} onClose={() => busy !== 'subscribe' && setConfirmPlan(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setConfirmPlan(null)} disabled={busy === 'subscribe'}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={confirmSubscribe} disabled={busy === 'subscribe'}>
+                {busy === 'subscribe' ? <><Spinner /> Processing…</> : `Pay ₹${confirmPlan.monthlyPrice} (test payment)`}
+              </button>
+            </>
+          }>
+          <p className="body-md mb-md">
+            {confirmPlan.meals}, {describeDays(confirmPlan.servingDays)} · {confirmPlan.mealsPerPeriod} meals for one month starting today.
+          </p>
+          <div className="form-group">
+            <label className="form-label" htmlFor="sub-pay">Payment method</label>
+            <select id="sub-pay" className="form-select" value={payMethod} onChange={e => setPayMethod(e.target.value)} data-autofocus>
+              {PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+            <div className="form-hint">No real payment is taken. The simulator records a test transaction ID.</div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function describeDays(servingDays) {
+  const names = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const [from, to] = String(servingDays || '').split('-').map(Number);
+  if (!from) return servingDays;
+  return from === (to || from) ? names[from] : `${names[from]}–${names[to]}`;
+}
+
+function SubscriptionCard({ sub, busy, onAction }) {
+  const isBusy = (action) => busy === `${sub.id}:${action}`;
+  const anyBusy = busy !== null;
+  const [cls, label] = STATUS_BADGE[sub.status] || ['badge-muted', sub.status];
+  return (
+    <article className="card subscription-card">
+      <div className="flex justify-between items-start gap-md">
+        <div>
+          <h3 className="heading-lg">{sub.planName}</h3>
+          <p className="body-sm text-muted">{sub.meals} · {describeDays(sub.servingDays)}</p>
+        </div>
+        <span className={`badge badge-dot ${cls}`}>{label}</span>
+      </div>
+
+      <dl className="stat-row">
+        <div><dt>Remaining</dt><dd>{sub.mealsRemaining}</dd></div>
+        <div><dt>Skipped</dt><dd>{sub.mealsSkipped}</dd></div>
+        <div><dt>Used</dt><dd>{sub.mealsUsed}</dd></div>
+      </dl>
+      <ProgressBar value={sub.mealsPerPeriod - sub.mealsRemaining} max={sub.mealsPerPeriod} label="Plan usage" showValue />
+
+      <p className="caption text-muted">
+        {formatDate(sub.startDate)} – {formatDate(sub.endDate)} · ₹{sub.amountCharged}{sub.paymentSimulated ? ' test payment' : ''}{sub.transactionId ? ` · ${sub.transactionId}` : ''}
+      </p>
+
+      <div className="card-actions">
+        {sub.canPause && (
+          <button type="button" className="btn btn-outline btn-sm" disabled={anyBusy} onClick={() => onAction(sub, 'pause', 'paused')}>
+            {isBusy('pause') ? <Spinner /> : <Pause size={14} aria-hidden="true" />} Pause plan
+          </button>
+        )}
+        {sub.canResume && (
+          <button type="button" className="btn btn-primary btn-sm" disabled={anyBusy} onClick={() => onAction(sub, 'resume', 'resumed')}>
+            {isBusy('resume') ? <Spinner /> : <Play size={14} aria-hidden="true" />} Resume plan
+          </button>
+        )}
+        <button type="button" className="btn btn-outline btn-sm" disabled={anyBusy || !sub.canSkipToday}
+          aria-describedby={!sub.canSkipToday && sub.skipBlockedReason ? `skip-why-${sub.id}` : undefined}
+          onClick={() => onAction(sub, 'skip-today', 'today’s meal skipped')}>
+          {isBusy('skip-today') ? <Spinner /> : <SkipForward size={14} aria-hidden="true" />} Skip today
+        </button>
+      </div>
+      {!sub.canSkipToday && sub.skipBlockedReason && <p id={`skip-why-${sub.id}`} className="caption text-muted">{sub.skipBlockedReason}.</p>}
+    </article>
+  );
+}
+
+// ─── QR tickets ────────────────────────────────────────────
+export function QRTicketsPage({ setPage }) {
+  const { activeOrders } = useApp();
+
+  return (
+    <div>
+      <SectionHeader title="QR tickets" subtitle="Show a ticket at the counter during your pickup slot. Tickets disappear once an order is collected or cancelled." />
+      {activeOrders.length === 0 ? (
+        <EmptyState icon={Ticket} title="No active tickets" message="Every order you place gets a QR ticket here."
+          action={<button type="button" className="btn btn-primary btn-sm" onClick={() => setPage('order')}>Place an order</button>} />
+      ) : (
+        <div className="card-grid">
+          {activeOrders.map(order => {
+            const counters = [...new Set(order.items.map(i => counterFor(i.category)))];
+            return (
+              <article key={order.id} className="card flex flex-col items-center gap-md text-center">
+                <div className="flex justify-between items-center w-full">
+                  <span className="heading-lg">{order.id}</span>
+                  <StatusBadge status={order.status} />
                 </div>
-              )}
-              {order.items.some(i => i.counter === 'dishes') && (
-                <div className="alert alert-info mt-sm" style={{ textAlign: 'left' }}>
-                  🍴 Show at Dishes Counter
+                <div className="qr-ticket">
+                  <QRCodeSVG value={order.qrCodeData || order.id} size={176} bgColor="#ffffff" fgColor="#20211D" level="H"
+                    title={`QR ticket for order ${order.id}`} />
+                  <div className="qr-ticket-id">{order.id}</div>
                 </div>
-              )}
-            </div>
-          ))}
+                <dl className="detail-list w-full" style={{ textAlign: 'left' }}>
+                  <div><dt>Pickup slot</dt><dd>{order.slotLabel}</dd></div>
+                  <div><dt>Collect at</dt><dd>{counters.join(' and ')}</dd></div>
+                  <div><dt>Items</dt><dd>{order.items.map(i => `${i.qty} × ${i.name}`).join(', ')}</dd></div>
+                  <div><dt>{order.paymentStatus === 'PENDING_CASH' ? 'Pay at pickup' : 'Paid'}</dt><dd>₹{order.total}</dd></div>
+                </dl>
+              </article>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Profile Page ─────────────────────────────────────────
-export function ProfilePage() {
-  const { currentUser, myOrders, updateProfile, orderFetchError, fetchOrders } = useApp();
+// ─── Profile ───────────────────────────────────────────────
+export function ProfilePage({ setPage }) {
+  const { currentUser, myOrders, updateProfile, showToast } = useApp();
 
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(currentUser?.name || '');
@@ -280,316 +400,130 @@ export function ProfilePage() {
   const [uid, setUid] = useState(currentUser?.uid || '');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  // Start editing and reset form state to current user values
-  const handleStartEdit = () => {
+  const dirty = isEditing && (name !== (currentUser?.name || '') || phone !== (currentUser?.phone || '') || uid !== (currentUser?.uid || ''));
+
+  const startEdit = () => {
     setName(currentUser?.name || '');
     setPhone(currentUser?.phone || '');
     setUid(currentUser?.uid || '');
     setErrorMsg('');
-    setSuccessMsg('');
+    setNameError('');
     setIsEditing(true);
   };
 
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setErrorMsg('');
-  };
+  const cancelEdit = () => { setIsEditing(false); setErrorMsg(''); setNameError(''); setConfirmDiscard(false); };
 
-  const handleSaveProfile = async (e) => {
+  const save = async (e) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setErrorMsg('Full Name cannot be empty.');
+    if (name.trim().length < 2) {
+      setNameError('Enter your full name (at least 2 characters).');
       return;
     }
-
+    setNameError('');
     setIsSaving(true);
     setErrorMsg('');
-    setSuccessMsg('');
-
-    const res = await updateProfile({
-      name: name.trim(),
-      phone: phone.trim(),
-      uid: uid.trim(),
-    });
-
+    const res = await updateProfile({ name: name.trim(), phone: phone.trim(), uid: uid.trim() });
     setIsSaving(false);
     if (res.success) {
-      setSuccessMsg('Profile updated and saved to MySQL successfully!');
+      showToast('Profile saved.');
       setIsEditing(false);
     } else {
-      setErrorMsg(res.error || 'Failed to update profile.');
+      setErrorMsg(res.error || 'The profile could not be saved. Please try again.');
     }
   };
 
-  // Real statistics derived from database orders
-  const totalSpent = myOrders.reduce((s, o) => {
-    const isCancelled = o.status?.toUpperCase() === 'CANCELLED';
-    const isFailed = o.paymentStatus?.toUpperCase() === 'PAYMENT_FAILED';
-    return (!isCancelled && !isFailed) ? s + (o.total || 0) : s;
+  const spent = myOrders.reduce((s, o) => {
+    const st = String(o.status || '').toUpperCase();
+    return st !== 'CANCELLED' ? s + (o.total || 0) : s;
   }, 0);
-
-  const initialLetter = currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'U';
+  const lastOrder = myOrders[0];
 
   return (
     <div>
       <SectionHeader
-        title="My Profile"
-        subtitle="Manage your campus account details and view verified meal transactions"
-        actions={
-          !isEditing ? (
-            <button className="btn btn-primary" onClick={handleStartEdit}>
-              <Edit3 size={15} /> Edit Profile
-            </button>
-          ) : (
-            <button className="btn btn-ghost" onClick={handleCancelEdit} disabled={isSaving}>
-              <X size={15} /> Cancel
-            </button>
-          )
-        }
+        title="Profile"
+        subtitle="Your account details. Your email is your sign-in and cannot be changed here."
+        actions={!isEditing && <button type="button" className="btn btn-outline" onClick={startEdit}><Pencil size={15} aria-hidden="true" /> Edit profile</button>}
       />
 
-      {successMsg && (
-        <div className="alert alert-success mb-lg">
-          <CheckCircle size={18} style={{ flexShrink: 0 }} />
-          <span>{successMsg}</span>
-        </div>
-      )}
-
-      {errorMsg && (
-        <div className="alert alert-danger mb-lg">
-          <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {orderFetchError && (
-        <div className="alert alert-warning mb-lg flex justify-between items-center">
-          <div className="flex items-center gap-sm">
-            <AlertTriangle size={18} style={{ flexShrink: 0 }} />
-            <span>{orderFetchError}</span>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={fetchOrders}>
-            <RefreshCw size={14} /> Retry
-          </button>
-        </div>
-      )}
-
       <div className="grid grid-2 gap-lg">
-        {/* Left Column: Profile Card & Edit Form */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)', marginBottom: 'var(--space-xl)' }}>
-            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--grad-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 800, color: '#fff', boxShadow: '0 4px 20px rgba(108,99,255,0.4)', flexShrink: 0 }}>
-              {initialLetter}
-            </div>
-            <div>
-              <div className="display-md">{currentUser?.name}</div>
-              <div className="body-sm text-muted">{currentUser?.email}</div>
-              <span className="badge badge-primary mt-xs" style={{ fontSize: '0.75rem' }}>
-                {currentUser?.role === 'ROLE_ADMIN' || currentUser?.role === 'admin' ? 'Mess Admin' : 'Student'}
-                {currentUser?.uid ? ` · UID: ${currentUser.uid}` : ''}
-              </span>
-            </div>
-          </div>
+        <section className="card" aria-labelledby="account-title">
+          <h2 id="account-title" className="sr-only">Account details</h2>
+          {errorMsg && <div className="alert alert-danger mb-md" role="alert"><CircleAlert size={16} aria-hidden="true" /><span>{errorMsg}</span></div>}
 
-          {/* Real Statistics from Persisted Orders */}
-          <div className="grid grid-2 gap-sm" style={{ textAlign: 'center', marginBottom: 'var(--space-xl)' }}>
-            <div style={{ background: 'var(--bg-elevated)', padding: 16, borderRadius: 12 }}>
-              <div className="heading-lg text-brand">{myOrders.length}</div>
-              <div className="caption text-muted">Total Orders</div>
-            </div>
-            <div style={{ background: 'var(--bg-elevated)', padding: 16, borderRadius: 12 }}>
-              <div className="heading-lg text-success">₹{totalSpent}</div>
-              <div className="caption text-muted">Total Spent</div>
-            </div>
-          </div>
-
-          {/* Profile Form (View or Edit mode) */}
           {!isEditing ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-              <div className="form-group">
-                <label className="form-label">Full Name</label>
-                <input className="form-input" value={currentUser?.name || ''} readOnly style={{ opacity: 0.85 }} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Student / Staff UID</label>
-                <input className="form-input" value={currentUser?.uid || 'Not Set'} readOnly style={{ opacity: 0.85 }} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email Address (Login ID)</label>
-                <input className="form-input" value={currentUser?.email || ''} readOnly style={{ opacity: 0.7, cursor: 'not-allowed' }} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <input className="form-input" value={currentUser?.phone || 'Not Set'} readOnly style={{ opacity: 0.85 }} />
-              </div>
-              <button className="btn btn-ghost btn-full mt-sm" onClick={handleStartEdit}>
-                <Edit3 size={15} /> Edit My Profile
-              </button>
-            </div>
+            <dl className="detail-list">
+              <div><dt>Full name</dt><dd>{currentUser?.name}</dd></div>
+              <div><dt>Email</dt><dd>{currentUser?.email}</dd></div>
+              <div><dt>Campus ID</dt><dd>{currentUser?.uid || <span className="text-muted">Not set</span>}</dd></div>
+              <div><dt>Phone</dt><dd>{currentUser?.phone || <span className="text-muted">Not set</span>}</dd></div>
+              <div><dt>Account type</dt><dd>{currentUser?.isAdmin ? 'Mess administrator' : 'Student'}</dd></div>
+            </dl>
           ) : (
-            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+            <form onSubmit={save} className="form-stack" noValidate>
               <div className="form-group">
-                <label className="form-label">Full Name *</label>
-                <input
-                  className="form-input"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Enter your full name"
-                  required
-                />
+                <label className="form-label" htmlFor="pf-name">Full name</label>
+                <input id="pf-name" className="form-input" value={name} onChange={e => setName(e.target.value)} autoComplete="name"
+                  aria-invalid={Boolean(nameError)} aria-describedby={nameError ? 'pf-name-error' : undefined} maxLength={100} />
+                {nameError && <span id="pf-name-error" className="form-error"><CircleAlert size={14} aria-hidden="true" />{nameError}</span>}
               </div>
               <div className="form-group">
-                <label className="form-label">Student UID (Campus ID)</label>
-                <input
-                  className="form-input"
-                  value={uid}
-                  onChange={e => setUid(e.target.value)}
-                  placeholder="e.g. 2025510014"
-                />
+                <label className="form-label" htmlFor="pf-uid">Campus ID <span className="text-muted">(optional)</span></label>
+                <input id="pf-uid" className="form-input" value={uid} onChange={e => setUid(e.target.value)} placeholder="e.g. 2025510014" />
               </div>
               <div className="form-group">
-                <label className="form-label">Email Address</label>
-                <input
-                  className="form-input"
-                  value={currentUser?.email || ''}
-                  disabled
-                  style={{ opacity: 0.6, cursor: 'not-allowed' }}
-                />
-                <span className="caption text-muted" style={{ fontSize: '0.7rem' }}>Email cannot be changed to prevent account impersonation.</span>
+                <label className="form-label" htmlFor="pf-email">Email</label>
+                <input id="pf-email" className="form-input" value={currentUser?.email || ''} disabled aria-describedby="pf-email-hint" />
+                <span id="pf-email-hint" className="form-hint">Your email is your sign-in, so it can’t be changed.</span>
               </div>
               <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <input
-                  className="form-input"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="e.g. +91 98765 43210"
-                />
+                <label className="form-label" htmlFor="pf-phone">Phone <span className="text-muted">(optional)</span></label>
+                <input id="pf-phone" className="form-input" type="tel" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 98765 43210" />
               </div>
-
-              <div className="flex gap-sm mt-md">
-                <button type="button" className="btn btn-ghost flex-1" onClick={handleCancelEdit} disabled={isSaving}>
-                  Cancel
+              <div className="button-row">
+                <button type="button" className="btn btn-ghost" onClick={() => (dirty ? setConfirmDiscard(true) : cancelEdit())} disabled={isSaving}>
+                  <X size={15} aria-hidden="true" /> Cancel
                 </button>
-                <button type="submit" className="btn btn-primary flex-1" disabled={isSaving}>
-                  {isSaving ? (
-                    <span className="flex items-center gap-xs justify-center">
-                      <RefreshCw size={15} className="animate-spin" /> Saving…
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-xs justify-center">
-                      <Save size={15} /> Save Changes
-                    </span>
-                  )}
+                <button type="submit" className="btn btn-primary" disabled={isSaving || !dirty}>
+                  {isSaving ? <><RefreshCw size={15} className="animate-spin" aria-hidden="true" /> Saving…</> : 'Save changes'}
                 </button>
               </div>
             </form>
           )}
-        </div>
+        </section>
 
-        {/* Right Column: Persisted Order History */}
-        <div className="card">
-          <div className="flex justify-between items-center mb-md">
-            <h3 className="heading-lg">Order History</h3>
-            <span className="caption text-muted">{myOrders.length} records</span>
-          </div>
-
-          {myOrders.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 'var(--space-2xl) var(--space-md)', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📜</div>
-              <div className="heading-sm mb-xs">No orders yet</div>
-              <p className="caption">Orders placed through the campus food portal will appear here.</p>
+        <section className="card flex flex-col gap-md" aria-labelledby="activity-title">
+          <h2 id="activity-title" className="heading-lg">Your activity</h2>
+          <dl className="stat-row" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+            <div><dt>Orders placed</dt><dd>{myOrders.length}</dd></div>
+            <div><dt>Spent (excl. cancelled)</dt><dd>₹{spent}</dd></div>
+          </dl>
+          {lastOrder ? (
+            <div className="row-item">
+              <div className="row-item-main">
+                <span className="label">Last order {lastOrder.id}</span>
+                <span className="caption text-muted">{formatDateTime(lastOrder.createdAt)} · ₹{lastOrder.total}</span>
+              </div>
+              <StatusBadge status={lastOrder.status} />
             </div>
           ) : (
-            <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
-              {myOrders.map(o => (
-                <div key={o.id} className="flex justify-between items-center" style={{ padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div>
-                    <div className="flex items-center gap-xs">
-                      <span className="label text-brand">{o.id}</span>
-                      <span className="badge badge-muted" style={{ fontSize: '0.65rem' }}>{o.payMethod || 'UPI'}</span>
-                    </div>
-                    <div className="caption text-muted" style={{ marginTop: 2 }}>
-                      {o.createdAt ? new Date(o.createdAt).toLocaleString() : 'Recent'} · {o.slotLabel || 'Counter'}
-                    </div>
-                  </div>
-                  <div className="flex gap-sm items-center">
-                    <span className="label" style={{ fontWeight: 700 }}>₹{o.total}</span>
-                    <span className={`badge badge-sm ${
-                      o.status?.toLowerCase() === 'completed' ? 'badge-success' :
-                      o.status?.toLowerCase() === 'cancelled' ? 'badge-danger' : 'badge-warning'
-                    }`}>
-                      {o.status || 'CONFIRMED'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="body-sm text-muted">You haven’t placed an order yet.</p>
           )}
-        </div>
+          <div>
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => setPage('my-orders')}>
+              <ClipboardList size={15} aria-hidden="true" /> View order history <ArrowRight size={15} aria-hidden="true" />
+            </button>
+          </div>
+        </section>
       </div>
-    </div>
-  );
-}
 
-// ─── Slot Management ──────────────────────────────────────
-export function SlotManagement() {
-  const { slots } = useApp();
-  return (
-    <div>
-      <SectionHeader title="Pickup Slot Management" subtitle="Configure and monitor capacity per time window" />
-      <div className="grid grid-2 gap-md">
-        {slots.map(slot => {
-          const pct = (slot.booked / slot.capacity) * 100;
-          return (
-            <div key={slot.id} className="card">
-              <div className="flex justify-between items-start mb-md">
-                <div>
-                  <div className="heading-md">{slot.label}</div>
-                  <span className="badge badge-muted">{slot.meal}</span>
-                </div>
-                <div className="flex gap-sm">
-                  <span className={`badge ${pct >= 100 ? 'badge-danger' : pct > 75 ? 'badge-warning' : 'badge-success'}`}>{pct >= 100 ? 'FULL' : `${Math.round(100 - pct)}% free`}</span>
-                  <span className={`badge badge-dot ${slot.active ? 'badge-success' : 'badge-muted'}`}>{slot.active ? 'Active' : 'Inactive'}</span>
-                </div>
-              </div>
-              <ProgressBar value={slot.booked} max={slot.capacity} variant={pct >= 100 ? 'danger' : pct > 75 ? 'warning' : 'success'} showValue />
-              <div className="flex justify-between mt-sm">
-                <span className="caption text-muted">Booked: {slot.booked}</span>
-                <span className="caption text-muted">Capacity: {slot.capacity}</span>
-                <span className="caption text-success">Available: {slot.capacity - slot.booked}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Staff Management ─────────────────────────────────────
-export function StaffManagement() {
-
-  return (
-    <div>
-      <SectionHeader title="Staff Management" subtitle="Manage counter staff and access" actions={<button className="btn btn-primary">Add Staff</button>} />
-      <div className="table-container">
-        <table>
-          <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Status</th></tr></thead>
-          <tbody>
-            {USERS.filter(u => u.role !== 'student').map(u => (
-              <tr key={u.id}>
-                <td>{u.name}</td>
-                <td><span className="badge badge-primary">{u.role.replace('_', ' ')}</span></td>
-                <td>{u.email}</td>
-                <td><span className="badge badge-success badge-dot">Active</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {confirmDiscard && (
+        <ConfirmDialog title="Discard your changes?" message="The edits you made to your profile will be lost."
+          confirmLabel="Discard changes" cancelLabel="Keep editing" danger onConfirm={cancelEdit} onCancel={() => setConfirmDiscard(false)} />
+      )}
     </div>
   );
 }

@@ -1,20 +1,17 @@
 import { useState } from 'react';
-import { ShoppingCart, User, GraduationCap, Utensils, Shield, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Info, Sun, Moon, CircleAlert } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { ROLES } from '../data/mockData';
-import { Logo } from '../components/Shared';
+import { Logo, Spinner, MealImage } from '../components/Shared';
+import { HERO_IMAGE } from '../lib/menuImages';
 
-const ROLE_OPTIONS = [
-  { role: ROLES.STUDENT, label: 'Student', desc: 'Order meals, view menu, track orders', icon: GraduationCap, color: 'var(--brand-primary)' },
-  { role: ROLES.ADMIN, label: 'Mess Admin', desc: 'Manage menu, view analytics, manage orders', icon: Shield, color: 'var(--brand-secondary)' },
-];
-
-// No credentials are bundled into the frontend. Demo accounts (if enabled on the backend with
-// MEALSYNC_SEED_DEMO_USERS=true) are signed into with the passwords configured there.
-export default function LoginPage() {
-  const { setRealUser } = useApp();
-  const [selectedRole, setSelectedRole] = useState(ROLES.STUDENT);
-  const [isRegistering, setIsRegistering] = useState(false);
+/**
+ * One sign-in for everyone. The account type (student or mess administrator) is decided by the
+ * server and returned with the login response — there is deliberately no "sign in as" choice,
+ * and public registration always creates a student account.
+ */
+export default function LoginPage({ mode = 'login', onModeChange, onBack }) {
+  const { completeLogin, theme, toggleTheme } = useApp();
+  const isRegistering = mode === 'register';
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,252 +20,149 @@ export default function LoginPage() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleRoleSelect = (r) => {
-    setSelectedRole(r.role);
+  const switchMode = () => {
+    onModeChange(isRegistering ? 'login' : 'register');
     setError('');
+    setSuccess('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError('');
     setSuccess('');
 
     try {
       if (isRegistering) {
-        // POST to Spring Boot — role is intentionally excluded from the request
         const response = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password })
+          body: JSON.stringify({ name, email, password }),
         });
-        let data = null;
-        try {
-          data = await response.json();
-        } catch (jsonErr) {}
-
+        const data = await response.json().catch(() => null);
         if (response.ok) {
-          setSuccess('Account created successfully! You can now sign in.');
-          setIsRegistering(false);
-        } else {
-          setError(data?.error || 'Registration failed');
-        }
-      } else {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        });
-        
-        let data = null;
-        try {
-          data = await response.json();
-        } catch (parseErr) {
-          // Response body was not JSON
-        }
-
-        if (response.ok && data?.token) {
-          // Map backend role (ROLE_USER) to frontend role string for UI routing
-          const frontendRole = mapBackendRole(data.role, selectedRole);
-          // Pass JWT token to context for authenticated API calls
-          setRealUser({
-            id: data.userId,
-            name: data.name,
-            email: data.email,
-            role: frontendRole,
-          }, data.token);  // token stored securely in context
-        } else if (response.status === 401) {
-          setError(data?.error || 'Invalid email or password');
-        } else if (response.status === 403) {
-          setError(data?.error || 'Access denied: account not permitted');
-        } else if (response.status === 404) {
-          setError('Authentication endpoint not found (404)');
+          setSuccess('Your student account is ready. Sign in to start ordering.');
+          onModeChange('login');
+          setPassword('');
+        } else if (response.status === 409) {
+          setError('An account with this email already exists. Sign in instead.');
         } else if (response.status >= 500) {
-          setError(data?.error || `Server error (${response.status}). Please check backend logs.`);
+          setError('The server could not create the account. Please try again shortly.');
         } else {
-          setError(data?.error || 'Login failed. Please check your credentials.');
+          setError(data?.error || 'Registration failed. Please check your details.');
         }
+        return;
       }
-    } catch(err) {
-      setError("Cannot reach the backend server. Please verify Spring Boot is running on port 8080.");
+
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json().catch(() => null);
+
+      if (response.ok && data?.token) {
+        if (!completeLogin(data)) setError('Unexpected response from the server. Please try again.');
+      } else if (response.status === 401) {
+        setError('Incorrect email or password.');
+      } else if (response.status >= 500) {
+        setError('The server could not complete the sign-in. Please try again shortly.');
+      } else {
+        setError(data?.error || 'Sign-in failed. Please check your details.');
+      }
+    } catch {
+      setError('Cannot reach the MealSync server. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * Maps the backend role string to the frontend role constant.
-   * Student accounts have ROLE_USER or ROLE_STUDENT. Admin has ROLE_ADMIN.
-   * NOTE: This is for UI routing only — all access control is enforced server-side.
-   */
-  function mapBackendRole(backendRole, fallbackRole) {
-    if (backendRole === 'ROLE_ADMIN') return ROLES.ADMIN;
-    if (backendRole === 'ROLE_USER' || backendRole === 'ROLE_STUDENT') return ROLES.STUDENT;
-    return fallbackRole === ROLES.ADMIN ? ROLES.ADMIN : ROLES.STUDENT;
-  }
-
-
   return (
     <div className="auth-page">
-      {/* Animated Background Orbs */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-        <div style={{ position: 'absolute', top: '10%', left: '15%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(108,99,255,0.12) 0%, transparent 70%)', animation: 'float 6s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '15%', right: '10%', width: 300, height: 300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,101,132,0.08) 0%, transparent 70%)', animation: 'float 8s ease-in-out infinite reverse' }} />
-        <div style={{ position: 'absolute', top: '50%', right: '25%', width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(67,233,123,0.06) 0%, transparent 70%)', animation: 'float 5s ease-in-out infinite 2s' }} />
-      </div>
+      <aside className="auth-media" aria-hidden="true">
+        <MealImage src={HERO_IMAGE.src} alt="" eager />
+        <div className="auth-media-caption">
+          <div className="display-md">Good food. Less waiting.</div>
+          <p className="body-sm mt-sm">Order ahead, choose a pickup slot and collect with one QR ticket.</p>
+        </div>
+      </aside>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 480px', gap: 'var(--space-3xl)', alignItems: 'center', maxWidth: 1100, width: '100%', position: 'relative', zIndex: 1 }}>
-
-        {/* Left – Branding */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
-          <Logo size="lg" />
-          <div>
-            <h1 className="display-xl" style={{ lineHeight: 1.1, marginBottom: 'var(--space-md)' }}>
-              Smart Campus<br />
-              <span className="grad-text">Mess Platform</span>
-            </h1>
-            <p className="body-lg text-secondary" style={{ maxWidth: 440, lineHeight: 1.7 }}>
-              Eliminate queue time. Pre-order meals, receive a secure QR ticket, and walk directly to your counter — no waiting.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-            {[
-              { emoji: '⚡', title: 'Instant Ordering', desc: 'Skip billing queues entirely' },
-              { emoji: '📱', title: 'QR-Based Pickup', desc: 'Secure digital order tickets' },
-              { emoji: '📊', title: 'Live Availability', desc: 'Real-time menu quantities' },
-              { emoji: '☁️', title: 'Cloud Native', desc: 'Kubernetes + Prometheus + Grafana' },
-            ].map(f => (
-              <div key={f.title} className="flex items-center gap-md">
-                <div style={{ width: 42, height: 42, borderRadius: 10, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
-                  {f.emoji}
-                </div>
-                <div>
-                  <div className="heading-sm">{f.title}</div>
-                  <div className="body-sm text-muted">{f.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Tech Stack chips */}
-          <div className="flex flex-wrap gap-sm">
-            {['Spring Boot', 'React', 'MySQL', 'Kubernetes', 'Docker', 'Prometheus', 'Grafana', 'Terraform', 'AWS'].map(t => (
-              <span key={t} className="badge badge-muted">{t}</span>
-            ))}
-          </div>
+      <main className="auth-main" id="main">
+        <div className="auth-top">
+          <button type="button" className="btn btn-ghost" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" /> MealSync home</button>
+          <button type="button" className="btn btn-ghost btn-icon" onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
         </div>
 
-        {/* Right – Auth Card */}
-        <div className="auth-card">
-          <div style={{ textAlign: 'center', marginBottom: 'var(--space-xl)' }}>
-            <div className="display-md" style={{ marginBottom: 6 }}>
-              {isRegistering ? 'Create Account' : 'Welcome Back'}
-            </div>
-            <div className="body-sm text-muted">
-              {isRegistering ? 'Register to start ordering' : 'Sign in to your MealSync account'}
-            </div>
-          </div>
+        <div className="auth-form-wrap">
+          <section className="auth-card" aria-labelledby="auth-title">
+            <div className="mb-lg"><Logo size="lg" /></div>
+            <h1 id="auth-title" className="display-md">{isRegistering ? 'Create your account' : 'Welcome back'}</h1>
+            <p className="body-md text-secondary mt-sm mb-lg">
+              {isRegistering
+                ? 'A student account lets you order meals and pick a pickup slot.'
+                : 'Sign in with your MealSync email. Students and mess administrators use the same sign-in.'}
+            </p>
 
-          {/* Role Selector — Login only; Public registration is strictly for Students */}
-          {!isRegistering ? (
-            <div className="mb-lg">
-              <div className="form-label mb-sm">Sign In As</div>
-              <div className="grid grid-2 gap-sm">
-                {ROLE_OPTIONS.map(r => (
-                  <div
-                    key={r.role}
-                    className={`role-card ${selectedRole === r.role ? 'selected' : ''}`}
-                    onClick={() => handleRoleSelect(r)}
-                  >
-                    <div style={{ color: r.color, marginBottom: 4, display: 'flex', justifyContent: 'center' }}>
-                      <r.icon size={22} />
-                    </div>
-                    <div className="label" style={{ fontSize: '0.75rem' }}>{r.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="card-glass mb-lg" style={{ padding: '10px 14px', textAlign: 'center', borderColor: 'var(--brand-primary)' }}>
-              <span className="caption text-brand" style={{ fontWeight: 600 }}>🎓 Public Student Account Registration</span>
-            </div>
-          )}
+            <form onSubmit={handleSubmit} className="form-stack">
+              {isRegistering && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="auth-name">Full name</label>
+                  <input id="auth-name" className="form-input" type="text" autoComplete="name"
+                    value={name} onChange={e => setName(e.target.value)} required minLength={2} maxLength={100} />
+                </div>
+              )}
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
-            {isRegistering && (
               <div className="form-group">
-                <label className="form-label">Full Name</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Meet Gangwal"
-                  required
-                />
+                <label className="form-label" htmlFor="auth-email">Email address</label>
+                <input id="auth-email" className="form-input" type="email" autoComplete="email" inputMode="email"
+                  value={email} onChange={e => setEmail(e.target.value)} placeholder="you@spit.edu" required />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="auth-password">Password</label>
+                <div className="input-with-action">
+                  <input id="auth-password" className="form-input" type={showPass ? 'text' : 'password'}
+                    autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                    aria-describedby={isRegistering ? 'auth-password-hint' : undefined}
+                    value={password} onChange={e => setPassword(e.target.value)} required minLength={6} maxLength={72} />
+                  <button type="button" className="input-action" onClick={() => setShowPass(v => !v)}
+                    aria-label={showPass ? 'Hide password' : 'Show password'} aria-pressed={showPass}>
+                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {isRegistering && <div className="form-hint" id="auth-password-hint">Use 6–72 characters.</div>}
+              </div>
+
+              {error && <div className="alert alert-danger" role="alert"><CircleAlert size={16} aria-hidden="true" /><span>{error}</span></div>}
+              {success && <div className="alert alert-success" role="status">{success}</div>}
+
+              <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={loading}>
+                {loading
+                  ? <><Spinner /> {isRegistering ? 'Creating account…' : 'Signing in…'}</>
+                  : <>{isRegistering ? 'Create account' : 'Sign in'} <ArrowRight size={18} aria-hidden="true" /></>}
+              </button>
+            </form>
+
+            {isRegistering && (
+              <div className="alert alert-info mt-md">
+                <Info size={16} aria-hidden="true" />
+                <span>New accounts are student accounts. Mess administrator access is granted by an existing administrator under Users &amp; roles.</span>
               </div>
             )}
 
-            <div className="form-group">
-              <label className="form-label">Email Address</label>
-              <input
-                className="form-input"
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@spit.edu"
-                required
-              />
+            <div className="auth-switch">
+              <span className="body-sm text-muted">{isRegistering ? 'Already have an account?' : 'New to MealSync?'}</span>
+              <button type="button" className="btn btn-link" onClick={switchMode}>
+                {isRegistering ? 'Sign in' : 'Create a student account'}
+              </button>
             </div>
-
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  className="form-input"
-                  type={showPass ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  style={{ paddingRight: 42 }}
-                  required
-                  minLength={6}
-                />
-                <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
-                  {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            {error && <div className="alert alert-danger">{error}</div>}
-            {success && <div className="alert alert-success">{success}</div>}
-
-            <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={loading} style={{ marginTop: 4 }}>
-              {loading ? (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div className="animate-spin" style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%' }} />
-                  {isRegistering ? 'Creating...' : 'Signing In...'}
-                </span>
-              ) : (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {isRegistering ? 'Create Account' : 'Sign In'} <ArrowRight size={18} />
-                </span>
-              )}
-            </button>
-          </form>
-
-          <div style={{ textAlign: 'center', marginTop: 'var(--space-md)' }}>
-            <button 
-              type="button" 
-              className="btn btn-ghost btn-sm" 
-              onClick={() => { setIsRegistering(!isRegistering); setError(''); setSuccess(''); }}
-            >
-              {isRegistering ? 'Already have an account? Sign In' : 'Need an account? Register'}
-            </button>
-          </div>
+          </section>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -27,7 +27,7 @@ trap 'rm -f "$BODY"' EXIT
 
 check() { # name, expected, actual
   if [ "$2" = "$3" ]; then PASS=$((PASS + 1)); echo "  PASS  $1 ($3)"
-  else FAIL=$((FAIL + 1)); echo "  FAIL  $1 (expected $2, got $3)"; fi
+  else FAIL=$((FAIL + 1)); echo "  FAIL  $1 (expected $2, got $3)"; echo "        response: $(head -c 200 "$BODY")"; fi
 }
 http() { # method, path, [json], [token] -> prints status, body in $BODY
   local args=(-s -o "$BODY" -w '%{http_code}' -X "$1" "$BASE_URL$2" -H 'Content-Type: application/json')
@@ -35,7 +35,7 @@ http() { # method, path, [json], [token] -> prints status, body in $BODY
   [ -n "${4:-}" ] && args+=(-H "Authorization: Bearer $4")
   curl "${args[@]}"
 }
-json() { "$PY" -c "import json,sys; d=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))" "$BODY" "$1"; }
+json() { "$PY" -c "import json,sys; d=json.load(open(sys.argv[1], encoding='utf-8')); print(eval(sys.argv[2]))" "$BODY" "$1"; }
 
 echo "MealSync smoke test against $BASE_URL"
 
@@ -67,7 +67,10 @@ check "student denied admin overview" 403 "$(http GET /api/admin/overview "" "$T
 check "tampered token rejected" 401 "$(http GET /api/auth/me "" "${TOKEN}x")"
 
 echo "[orders]"
-ORDER_JSON="{\"pickupSlot\":\"12:30 PM\",\"paymentMethod\":\"UPI\",\"idempotencyKey\":\"smoke-$SUFFIX\",\"items\":[{\"menuItemId\":$MEAL_ID,\"qty\":1}]}"
+check "pickup slots listed" 200 "$(http GET /api/slots "" "$TOKEN")"
+# JSON-encoded (ASCII-escaped) label of an open slot with room left today
+SLOT=$(json 'json.dumps(next(s["label"] for s in d if s["active"] and s["remaining"] > 0))')
+ORDER_JSON="{\"pickupSlot\":$SLOT,\"paymentMethod\":\"UPI\",\"idempotencyKey\":\"smoke-$SUFFIX\",\"items\":[{\"menuItemId\":$MEAL_ID,\"qty\":1}]}"
 check "place order" 201 "$(http POST /api/orders "$ORDER_JSON" "$TOKEN")"
 ORDER_ID=$(json 'd["id"]')
 check "order id returned" True "$([ -n "$ORDER_ID" ] && echo True || echo False)"
@@ -76,6 +79,31 @@ check "same order id on retry" "id=$ORDER_ID" "id=$(json 'd["id"]')"
 check "order history" 200 "$(http GET "/api/orders/user/$USER_ID" "" "$TOKEN")"
 check "order present in history" True "$(json "any(o['id'] == $ORDER_ID for o in d)")"
 check "cancel order" 200 "$(http PUT "/api/orders/$ORDER_ID/cancel" "" "$TOKEN")"
+
+echo "[roles]"
+SP_EMAIL="smoke-sp-$SUFFIX@example.com"
+check "register with an admin role in the payload" 201 "$(http POST /api/auth/register "{\"name\":\"Smoke Promo\",\"email\":\"$SP_EMAIL\",\"password\":\"$PASSWORD\",\"role\":\"ROLE_ADMIN\"}")"
+http POST /api/auth/login "{\"email\":\"$SP_EMAIL\",\"password\":\"$PASSWORD\"}" >/dev/null
+check "payload role ignored: account is a student" ROLE_USER "$(json 'd["role"]')"
+TOKEN_SP=$(json 'd["token"]')
+check "student cannot list users (admin API)" 403 "$(http GET /api/admin/users "" "$TOKEN")"
+check "student cannot change roles (admin API)" 403 "$(http PUT "/api/admin/users/$USER_ID/role" '{"role":"ADMIN"}' "$TOKEN")"
+
+echo "[subscriptions]"
+check "list plans" 200 "$(http GET /api/subscriptions/plans "" "$TOKEN")"
+check "plan catalogue loaded" True "$(json 'len(d) >= 5')"
+check "subscribe (simulated payment)" 201 "$(http POST /api/subscriptions '{"planCode":"MONTHLY_LUNCH","paymentMethod":"UPI"}' "$TOKEN")"
+SUB_ID=$(json 'd["id"]')
+check "subscription active and marked simulated" "ACTIVE True" "$(json 'd["status"] + " " + str(d["paymentSimulated"])')"
+check "duplicate subscription rejected" 409 "$(http POST /api/subscriptions '{"planCode":"MONTHLY_LUNCH"}' "$TOKEN")"
+check "pause" 200 "$(http POST "/api/subscriptions/$SUB_ID/pause" "" "$TOKEN")"
+check "pause again is an invalid transition" 409 "$(http POST "/api/subscriptions/$SUB_ID/pause" "" "$TOKEN")"
+http POST /api/auth/login "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" >/dev/null
+TOKEN2=$(json 'd["token"]')
+check "state persists across a new login" 200 "$(http GET /api/subscriptions/me "" "$TOKEN2")"
+check "subscription still paused" PAUSED "$(json 'd[0]["status"]')"
+check "resume" 200 "$(http POST "/api/subscriptions/$SUB_ID/resume" "" "$TOKEN2")"
+check "other users cannot modify it" 404 "$(http POST "/api/subscriptions/$SUB_ID/pause" "" "$TOKEN_SP")"
 
 echo "[exposure]"
 ACT=$(http GET /actuator/health)

@@ -1,165 +1,165 @@
-import { useState } from 'react';
-import { ShoppingCart, TrendingUp, Clock, Star, Package, Bell, ChevronRight, Zap, AlertTriangle } from 'lucide-react';
+import { useEffect } from 'react';
+import { ShoppingBag, ArrowRight, QrCode, ClipboardList, UtensilsCrossed, CalendarCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { StatCard, StatusBadge, AlertBanner, SectionHeader } from '../components/Shared';
-import { ORDER_STATUS } from '../data/mockData';
-import OrderPage from './OrderPage';
+import { StatusBadge, MealImage, EmptyState } from '../components/Shared';
+import { counterFor } from '../components/MenuCatalog';
+import { isOrderable } from '../lib/cart';
+import { menuImageFor } from '../lib/menuImages';
+import { formatDateTime } from '../lib/format';
+import { slotHasEnded } from '../lib/slots';
 
+function greeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+/** Student home: the next useful action first, then today's slots and menu, then recent orders. */
 export default function StudentDashboard({ setPage }) {
-  const { currentUser, menuItems, slots, myOrders, activeOrders, cartCount, notifications, unreadCount } = useApp();
-  const now = new Date();
-  const hour = now.getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-
-  const completedToday = myOrders.filter(o => o.status === ORDER_STATUS.COMPLETED).length;
-  const totalSpent = myOrders.reduce((s, o) => o.status !== ORDER_STATUS.CANCELLED ? s + o.total : s, 0);
-  const availableSlots = slots.filter(s => s.booked < s.capacity);
-  const lowStockItems = menuItems.filter(i => i.available && i.qty > 0 && i.qty < 30);
-  const soldOutItems = menuItems.filter(i => !i.available || i.qty === 0);
+  const { currentUser, liveMenu: menuItems, menuStatus, slots, myOrders, activeOrders, cartCount, cartTotal, subscriptions } = useApp();
+  const { fetchSubscriptions } = useApp();
+  // Meal plan summary (failures are non-blocking here; the Meal plans page shows errors)
+  useEffect(() => { fetchSubscriptions().catch(() => {}); }, [fetchSubscriptions]);
+  const firstName = (currentUser?.name || '').split(' ')[0];
+  const nextOrder = activeOrders[0];
+  const openSlots = slots.filter(s => s.active && s.booked < s.capacity && !slotHasEnded(s));
+  const featured = menuItems.filter(i => isOrderable(i) && menuImageFor(i)).slice(0, 10);
+  const heroDish = menuItems.find(i => i.category === 'thali' && isOrderable(i) && menuImageFor(i)) || featured[0];
+  const activePlan = subscriptions.find(s => s.status === 'ACTIVE' || s.status === 'PAUSED');
 
   return (
     <div>
-      {/* Hero greeting */}
-      <div className="hero-gradient" style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-xl)', background: 'var(--bg-card)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border-subtle)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(108,99,255,0.15), transparent)', pointerEvents: 'none' }} />
-        <div className="flex justify-between items-center" style={{ flexWrap: 'wrap', gap: 'var(--space-md)' }}>
-          <div>
-            <div className="caption text-muted mb-xs">{greeting}! 👋</div>
-            <h1 className="display-md" style={{ marginBottom: 6 }}>{currentUser?.name}</h1>
-            <div className="flex items-center gap-sm">
-              <div className="status-dot online pulse" />
-              <span className="body-sm text-success">Lunch ordering is OPEN</span>
+      <section className="welcome" aria-labelledby="welcome-title">
+        <div className="welcome-text">
+          <span className="eyebrow">{greeting()}</span>
+          <h1 id="welcome-title" className="display-lg">{firstName ? `Hi ${firstName}, hungry?` : 'Hungry?'}</h1>
+          <p className="body-lg text-secondary">
+            {nextOrder
+              ? `Your order ${nextOrder.id} is ${String(nextOrder.status).toLowerCase() === 'ready' ? 'ready to collect' : 'in the queue'} for the ${nextOrder.slotLabel} slot.`
+              : cartCount > 0
+                ? `You have ${cartCount} item${cartCount === 1 ? '' : 's'} (₹${cartTotal}) waiting in your order.`
+                : 'Pick a few dishes, choose a pickup slot and skip the queue.'}
+          </p>
+          <div className="hero-cta">
+            <button type="button" className="btn btn-primary btn-lg" onClick={() => setPage('order')}>
+              <ShoppingBag size={18} aria-hidden="true" /> {cartCount > 0 ? 'Finish your order' : 'Place an order'}
+            </button>
+            <button type="button" className="btn btn-outline btn-lg" onClick={() => setPage('menu')}>Browse today’s menu</button>
+          </div>
+        </div>
+        {heroDish && (
+          <div className="welcome-media">
+            <MealImage item={heroDish} alt={heroDish.name} eager />
+          </div>
+        )}
+      </section>
+
+      {nextOrder && (
+        <section className="section" aria-labelledby="next-title">
+          <div className="section-head">
+            <h2 id="next-title" className="heading-lg">Your next pickup</h2>
+            {activeOrders.length > 1 && <span className="caption text-muted">{activeOrders.length} active orders</span>}
+          </div>
+          <div className="card next-up">
+            <div className="next-up-row">
+              <div className="flex flex-col gap-xs">
+                <span className="heading-lg">{nextOrder.id}</span>
+                <span className="body-sm text-secondary">
+                  {nextOrder.slotLabel} · {[...new Set(nextOrder.items.map(i => counterFor(i.category)))].join(' and ')}
+                </span>
+              </div>
+              <StatusBadge status={nextOrder.status} />
+            </div>
+            <p className="body-sm text-secondary">{nextOrder.items.map(i => `${i.qty} × ${i.name}`).join(', ')}</p>
+            <div className="card-actions">
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setPage('qr')}><QrCode size={15} aria-hidden="true" /> Show QR ticket</button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => setPage('my-orders')}>Track order</button>
             </div>
           </div>
-          <div className="flex gap-sm flex-wrap">
-            <button className="btn btn-primary btn-lg" onClick={() => setPage('order')}>
-              <ShoppingCart size={18} /> Order Now
-            </button>
-            <button className="btn btn-ghost" onClick={() => setPage('menu')}>
-              View Menu
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Alerts */}
-      {lowStockItems.length > 0 && (
-        <div style={{ marginBottom: 'var(--space-md)' }}>
-          <AlertBanner
-            type="warning"
-            icon={AlertTriangle}
-            message={`⚠️ ${lowStockItems.map(i => i.name).join(', ')} running low! Order now.`}
-          />
-        </div>
+        </section>
       )}
 
-      {unreadCount > 0 && (
-        <div style={{ marginBottom: 'var(--space-md)' }}>
-          <AlertBanner type="info" icon={Bell} message={`You have ${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}.`} />
-        </div>
-      )}
-
-      {/* Stats */}
-      <div className="grid grid-4 mb-xl">
-        <StatCard label="Active Orders" value={activeOrders.length} icon={ShoppingCart} variant="primary" />
-        <StatCard label="Meals Today" value={completedToday} icon={Star} variant="success" />
-        <StatCard label="Total Spent" value={`₹${totalSpent}`} icon={TrendingUp} variant="warning" />
-        <StatCard label="Cart Items" value={cartCount} icon={Package} variant="info" sub="Ready to order" />
-      </div>
-
-      <div className="grid grid-2 gap-lg">
-        {/* Pickup Slots */}
-        <div className="card">
-          <div className="flex justify-between items-center mb-md">
-            <h2 className="heading-lg flex items-center gap-sm"><Clock size={20} color="var(--brand-primary)" /> Pickup Slots</h2>
-            <span className="badge badge-success badge-dot">Live</span>
+      <div className="grid grid-2 gap-lg section">
+        <section className="card" aria-labelledby="slots-title">
+          <div className="section-head">
+            <h2 id="slots-title" className="heading-lg">Pickup slots today</h2>
+            <span className="caption text-muted">{openSlots.length} open</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {slots.filter(s => s.meal === 'lunch').map(slot => {
-              const pct = (slot.booked / slot.capacity) * 100;
-              const isFull = slot.booked >= slot.capacity;
-              return (
-                <div key={slot.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                  <div>
-                    <div className="label">{slot.label}</div>
-                    <div className="caption text-muted">{slot.capacity - slot.booked} spots remaining</div>
+          {slots.length === 0 ? (
+            <p className="body-sm text-muted">Loading slots…</p>
+          ) : openSlots.length === 0 ? (
+            <p className="body-sm text-secondary">No more pickup slots are open today.</p>
+          ) : (
+            <ul className="row-list">
+              {openSlots.slice(0, 5).map(slot => (
+                <li key={slot.id} className="row-item">
+                  <div className="row-item-main">
+                    <span className="label">{slot.label}</span>
+                    <span className="caption text-muted capitalize">{slot.mealPeriod}</span>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    {isFull ? <span className="badge badge-danger">FULL</span> : <span className="badge badge-success">{Math.round(100 - pct)}% free</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <button className="btn btn-outline btn-full" style={{ marginTop: 'var(--space-md)' }} onClick={() => setPage('order')}>
-            Book a Slot <ChevronRight size={16} />
-          </button>
-        </div>
+                  <span className="caption text-secondary tabular">{slot.capacity - slot.booked} of {slot.capacity} left</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-        {/* Today's Menu Preview */}
-        <div className="card">
-          <div className="flex justify-between items-center mb-md">
-            <h2 className="heading-lg">Today's Menu</h2>
-            <button className="btn btn-ghost btn-sm" onClick={() => setPage('menu')}>View All</button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {menuItems.slice(0, 6).map(item => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <div className="flex items-center gap-sm">
-                  <span style={{ fontSize: '1.5rem' }}>{item.emoji}</span>
-                  <div>
-                    <div className="label">{item.name}</div>
-                    <div className="caption text-muted">{item.available && item.qty > 0 ? `${item.qty} remaining` : 'SOLD OUT'}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-sm">
-                  <span className="heading-sm text-brand">₹{item.price}</span>
-                  {(!item.available || item.qty === 0) && <span className="badge badge-danger badge-sm">Sold Out</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-          <button className="btn btn-primary btn-full" style={{ marginTop: 'var(--space-md)' }} onClick={() => setPage('order')}>
-            <ShoppingCart size={16} /> Order Now
-          </button>
-        </div>
-
-        {/* Recent Orders */}
-        <div className="card" style={{ gridColumn: 'span 2' }}>
-          <div className="flex justify-between items-center mb-md">
-            <h2 className="heading-lg">Recent Orders</h2>
-            <button className="btn btn-ghost btn-sm" onClick={() => setPage('my-orders')}>View All</button>
+        <section className="card" aria-labelledby="recent-title">
+          <div className="section-head">
+            <h2 id="recent-title" className="heading-lg">Recent orders</h2>
+            {myOrders.length > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPage('my-orders')}>View order history</button>}
           </div>
           {myOrders.length === 0 ? (
-            <div className="empty-state" style={{ padding: 'var(--space-xl)' }}>
-              <div className="empty-icon">📋</div>
-              <div className="heading-md">No orders yet</div>
-              <div className="body-sm text-muted">Place your first order and skip the queue!</div>
-              <button className="btn btn-primary" onClick={() => setPage('order')}>Order Now</button>
-            </div>
+            <EmptyState icon={ClipboardList} title="No orders yet" message="Your first order will show up here with its status." />
           ) : (
-            <div className="table-container">
-              <table>
-                <thead><tr>
-                  <th>Order ID</th><th>Items</th><th>Total</th><th>Pickup Slot</th><th>Status</th><th></th>
-                </tr></thead>
-                <tbody>
-                  {myOrders.slice(0, 4).map(o => (
-                    <tr key={o.id}>
-                      <td style={{ fontWeight: 700, color: 'var(--brand-primary)' }}>{o.id}</td>
-                      <td>{(o.items || []).map(i => i.name).join(', ')}</td>
-                      <td>₹{o.total}</td>
-                      <td>{o.slotLabel}</td>
-                      <td><StatusBadge status={o.status} /></td>
-                      <td><button className="btn btn-ghost btn-sm" onClick={() => setPage('my-orders')}>View <ChevronRight size={14} /></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ul className="row-list">
+              {myOrders.slice(0, 4).map(o => (
+                <li key={o.id} className="row-item">
+                  <div className="row-item-main">
+                    <span className="label">{o.id} · ₹{o.total}</span>
+                    <span className="caption text-muted truncate">{formatDateTime(o.createdAt)} · {o.items.map(i => i.name).join(', ')}</span>
+                  </div>
+                  <StatusBadge status={o.status} />
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </section>
       </div>
+
+      <section className="section" aria-labelledby="dishes-title">
+        <div className="section-head">
+          <h2 id="dishes-title" className="heading-lg">On the menu today</h2>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPage('menu')}>See the full menu <ArrowRight size={14} aria-hidden="true" /></button>
+        </div>
+        {menuStatus === 'error' && featured.length === 0 ? (
+          <p className="body-sm text-secondary">The menu couldn’t be loaded right now.</p>
+        ) : featured.length === 0 ? (
+          <EmptyState icon={UtensilsCrossed} title="Nothing in stock right now" message="Check back closer to the next meal." />
+        ) : (
+          <div className="dish-strip">
+            {featured.map(item => (
+              <button key={item.id} type="button" className="dish-tile" onClick={() => setPage('menu')} aria-label={`${item.name}, ₹${item.price}. Open today’s menu`}>
+                <MealImage item={item} alt="" />
+                <span className="label">{item.name}</span>
+                <span className="caption text-muted">₹{item.price} · {item.qty} left</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {activePlan && (
+        <section className="card flex justify-between items-center gap-md flex-wrap" aria-label="Meal plan">
+          <div className="flex items-center gap-md">
+            <span className="stat-icon" aria-hidden="true"><CalendarCheck size={18} /></span>
+            <div className="flex flex-col">
+              <span className="label">{activePlan.planName} · {activePlan.status === 'PAUSED' ? 'paused' : 'active'}</span>
+              <span className="caption text-muted">{activePlan.mealsRemaining} meals remaining</span>
+            </div>
+          </div>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => setPage('subscription')}>Manage meal plan</button>
+        </section>
+      )}
     </div>
   );
 }

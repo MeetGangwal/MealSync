@@ -1,22 +1,23 @@
 import { useState, useMemo, Component } from 'react';
 import {
-  ShoppingCart, Plus, Minus, Trash2, CheckCircle,
-  Info, AlertTriangle, Search, ArrowLeft, ArrowRight,
-  ShieldCheck, RefreshCw,
+  Trash2, Check, Info, AlertTriangle, ArrowLeft, ArrowRight, RefreshCw, SearchX, ShoppingBag, CircleAlert, QrCode,
 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
-import { SectionHeader, SlotPicker } from '../components/Shared';
 import { QRCodeSVG } from 'qrcode.react';
+import { useApp } from '../context/AppContext';
+import { SectionHeader, SlotPicker, EmptyState, Spinner, MealImage, OrderTimeline, ConfirmDialog } from '../components/Shared';
+import { MenuCard, MenuFilters, QuantityStepper, categoryCounts, counterFor } from '../components/MenuCatalog';
+import { isOrderable } from '../lib/cart';
+import { slotHasEnded } from '../lib/slots';
 
-// ─── Error Boundary to prevent any blank page crash ──────────────────────────
+// ─── Error Boundary to prevent a blank page if rendering fails ───────────────
 class CheckoutErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, errorMsg: '' };
+    this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, errorMsg: error?.message || 'Rendering error' };
+  static getDerivedStateFromError() {
+    return { hasError: true };
   }
 
   componentDidCatch(error, errorInfo) {
@@ -26,20 +27,13 @@ class CheckoutErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="card" style={{ maxWidth: 500, margin: '40px auto', textAlign: 'center', padding: 'var(--space-2xl)' }}>
-          <AlertTriangle size={48} color="var(--color-danger)" style={{ margin: '0 auto var(--space-md)' }} />
-          <h2 className="heading-lg mb-sm">Something went wrong</h2>
-          <p className="body-sm text-muted mb-lg">
-            An unexpected error occurred while displaying your checkout screen: {this.state.errorMsg}
-          </p>
-          <button
-            className="btn btn-primary btn-full"
-            onClick={() => {
-              this.setState({ hasError: false });
-              if (this.props.onReset) this.props.onReset();
-            }}
-          >
-            <RefreshCw size={16} /> Return to Menu
+        <div className="card narrow-card text-center">
+          <AlertTriangle size={40} className="text-danger" aria-hidden="true" />
+          <h2 className="heading-lg">Something went wrong</h2>
+          <p className="body-sm text-muted">The checkout screen could not be displayed. Your cart is unchanged.</p>
+          <button type="button" className="btn btn-primary"
+            onClick={() => { this.setState({ hasError: false }); this.props.onReset?.(); }}>
+            <RefreshCw size={16} aria-hidden="true" /> Back to menu
           </button>
         </div>
       );
@@ -48,657 +42,399 @@ class CheckoutErrorBoundary extends Component {
   }
 }
 
-// ─── Main OrderPage Component ────────────────────────────────────────────────
+const STEPS = [
+  { key: 'cart', label: 'Review order' },
+  { key: 'slot', label: 'Pickup slot' },
+  { key: 'payment', label: 'Payment' },
+];
+
+const SORTS = [
+  { value: 'default', label: 'In stock first' },
+  { value: 'price-low', label: 'Price: low to high' },
+  { value: 'price-high', label: 'Price: high to low' },
+  { value: 'name', label: 'Name: A to Z' },
+];
+
+// ─── Place Order ─────────────────────────────────────────────────────────────
 export default function OrderPage({ setPage }) {
   const {
-    menuItems, slots, cart, addToCart, removeFromCart,
-    clearCart, cartTotal, cartCount, placeOrder,
+    liveMenu: menuItems, menuStatus, fetchMeals, slots, cart, addToCart, removeFromCart,
+    clearCart, cartTotal, cartCount, cartHasUnavailable, placeOrder, fetchSlots, showToast,
   } = useApp();
 
-  const [selectedSlot, setSelectedSlot] = useState(slots[0]?.id || '');
-  const [notes, setNotes] = useState('');
-  const [step, setStep] = useState('browse'); // browse | cart | slot | payment | confirm
+  const [selectedSlot, setSelectedSlot] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [step, setStep] = useState('cart'); // cart | slot | payment | confirm
   const [placedOrder, setPlacedOrder] = useState(null);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('popular');
+  const [sortBy, setSortBy] = useState('default');
   const [payMethod, setPayMethod] = useState('UPI');
   const [simulateFailure, setSimulateFailure] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderError, setOrderError] = useState('');
 
-  // Unified Category Definitions
-  const categories = [
-    { key: 'all', label: 'All Items', icon: '🍽️' },
-    { key: 'thali', label: 'Thalis & Combos', icon: '🍱' },
-    { key: 'snacks', label: 'Snacks & Quick Bites', icon: '🍔' },
-    { key: 'south-indian', label: 'South Indian & Breakfast', icon: '🥞' },
-    { key: 'meals', label: 'Rice Bowls & Curries', icon: '🍛' },
-    { key: 'beverages', label: 'Beverages', icon: '🥤' },
-  ];
-
-  // Filtering & Sorting Unified Catalogue
   const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return menuItems.filter(item => {
       const matchCat = categoryFilter === 'all' || item.category === categoryFilter;
-      const matchSearch = !searchQuery.trim() ||
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchSearch = !q || item.name.toLowerCase().includes(q) || (item.description || '').toLowerCase().includes(q);
       return matchCat && matchSearch;
     }).sort((a, b) => {
       if (sortBy === 'price-low') return a.price - b.price;
       if (sortBy === 'price-high') return b.price - a.price;
       if (sortBy === 'name') return a.name.localeCompare(b.name);
-      // 'popular' or default
-      return (b.popular ? 1 : 0) - (a.popular ? 1 : 0);
+      return Number(isOrderable(b)) - Number(isOrderable(a)) || a.name.localeCompare(b.name);
     });
   }, [menuItems, categoryFilter, searchQuery, sortBy]);
 
-  const lunchSlots = useMemo(() => slots.filter(s => s.meal === 'lunch'), [slots]);
+  // Open slots from the server; bookings and capacity are tracked and enforced by the backend
+  const openSlots = useMemo(() => slots.filter(s => s.active), [slots]);
+  const getCartQty = (id) => cart.find(c => c.menuItemId === id)?.qty || 0;
+  const counts = useMemo(() => categoryCounts(menuItems), [menuItems]);
+  const addItem = (item) => {
+    if (getCartQty(item.id) === 0) showToast(`${item.name} added to your order.`);
+    addToCart(item);
+  };
+  const menuItemFor = (line) => menuItems.find(m => m.id === line.menuItemId);
 
-  // Root Cause Fix: Explicit async / await with error handling and loading protection
+  // If the cart empties (e.g. items removed), go back to the review step
+  const activeStep = cartCount === 0 && step !== 'confirm' ? 'cart' : step;
+
   const handlePlaceOrder = async () => {
-    if (isSubmitting) return; // Prevent double submit
+    if (isSubmitting) return; // prevent double submit
     setIsSubmitting(true);
     setOrderError('');
-
     try {
       const idempotencyKey = 'ik_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-      const order = await placeOrder(selectedSlot, notes, payMethod, simulateFailure, idempotencyKey);
-
+      const order = await placeOrder(selectedSlot, '', payMethod, simulateFailure, idempotencyKey);
       if (order && !order.error) {
         setPlacedOrder(order);
         setStep('confirm');
       } else {
-        setOrderError(order?.error || 'Unable to complete order. Please check stock and try again.');
+        setOrderError(order?.error || 'Unable to complete the order. Please check stock and try again.');
+        fetchSlots(); // a slot may have filled up meanwhile
+        fetchMeals(); // and stock may have changed
       }
     } catch (err) {
       console.error('Error during checkout:', err);
-      setOrderError(err?.message || 'A network error occurred. Please try again.');
+      setOrderError('The order could not be sent because the server is unreachable. Nothing was charged — please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getCartQty = (id) => cart.find(c => c.menuItemId === id)?.qty || 0;
-
-  // ── Step: Confirm / QR Ticket ──────────────────────────────────────────────
   if (step === 'confirm' && placedOrder) {
-    const isCash = placedOrder.payMethod?.toLowerCase().includes('cash');
-
-    return (
-      <div style={{ maxWidth: 540, margin: '0 auto', paddingBottom: 'var(--space-2xl)' }}>
-        <div className="card" style={{ textAlign: 'center', padding: 'var(--space-2xl)' }}>
-          <div style={{ fontSize: '3.5rem', marginBottom: 'var(--space-sm)' }}>🎉</div>
-          <h1 className="display-md grad-text mb-xs">Order Confirmed!</h1>
-          <div className="body-sm text-secondary mb-lg">
-            Your food is being prepared at the mess counter. Present this QR code when collecting your meal.
-          </div>
-
-          {/* QR Code Ticket */}
-          <div className="qr-container mb-lg" style={{ display: 'inline-block', padding: 18, background: '#ffffff', borderRadius: 16, border: '3px solid var(--brand-primary)', boxShadow: '0 8px 24px rgba(108,99,255,0.25)' }}>
-            <QRCodeSVG
-              value={placedOrder.qrCodeData || placedOrder.id || 'MEALSYNC-TICKET'}
-              size={180}
-              bgColor="#ffffff"
-              fgColor="#111221"
-              level="H"
-            />
-            <div style={{ marginTop: 8, fontSize: '0.75rem', color: '#111221', fontWeight: 700, letterSpacing: '0.08em' }}>
-              {placedOrder.id}
-            </div>
-          </div>
-
-          {/* Order Details Card */}
-          <div className="card-glass mb-lg" style={{ textAlign: 'left', padding: 'var(--space-lg)' }}>
-            <div className="flex justify-between items-center mb-sm">
-              <span className="label text-muted">Order ID</span>
-              <span className="heading-sm text-brand">{placedOrder.id}</span>
-            </div>
-            <div className="flex justify-between items-center mb-sm">
-              <span className="label text-muted">Pickup Slot</span>
-              <span className="label" style={{ color: 'var(--brand-accent)' }}>📍 {placedOrder.slotLabel}</span>
-            </div>
-            <div className="flex justify-between items-center mb-sm">
-              <span className="label text-muted">Payment Mode</span>
-              <span className="label">
-                {placedOrder.payMethod || 'UPI'} {isCash ? '(Pay at Counter)' : '(Simulated Paid)'}
-              </span>
-            </div>
-            {placedOrder.transactionId && (
-              <div className="flex justify-between items-center mb-sm">
-                <span className="label text-muted">Transaction ID</span>
-                <span className="label text-mono" style={{ fontSize: '0.78rem', color: 'var(--brand-primary)', fontWeight: 600 }}>{placedOrder.transactionId}</span>
-              </div>
-            )}
-            <div className="flex justify-between items-center mb-sm">
-              <span className="label text-muted">Payment Status</span>
-              <span className={`badge ${placedOrder.paymentStatus === 'PENDING_CASH' ? 'badge-warning' : 'badge-success'}`}>
-                {placedOrder.paymentStatus || 'PAID'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center mb-sm">
-              <span className="label text-muted">Order Status</span>
-              <span className="badge badge-success">{placedOrder.status || 'CONFIRMED'}</span>
-            </div>
-
-            <div className="divider" style={{ margin: '12px 0' }} />
-
-            {/* Itemized breakdown */}
-            <div className="mb-sm">
-              <div className="caption text-muted mb-xs" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Ordered Items</div>
-              {(placedOrder.items || []).map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center mb-xs body-sm">
-                  <span>{item.emoji || '🍽️'} {item.name} ×{item.qty}</span>
-                  <span className="label">₹{item.price * item.qty}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="divider" style={{ margin: '12px 0' }} />
-
-            <div className="flex justify-between items-center">
-              <span className="heading-sm">Total Paid / Due</span>
-              <span className="heading-lg text-success">₹{placedOrder.total}</span>
-            </div>
-          </div>
-
-          {/* Safe Campus Instructions */}
-          <div className="alert alert-info mb-lg" style={{ textAlign: 'left' }}>
-            <Info size={18} style={{ flexShrink: 0 }} />
-            <div className="caption">
-              <strong>Mess Operations:</strong> Walk up to the food counter during your slot (<strong>{placedOrder.slotLabel}</strong>). Show your digital QR ticket for instant service without standing in billing queues.
-            </div>
-          </div>
-
-          <div className="flex gap-sm">
-            <button className="btn btn-ghost flex-1" onClick={() => setPage('my-orders')}>
-              View My Orders
-            </button>
-            <button
-              className="btn btn-primary flex-1"
-              onClick={() => {
-                setStep('browse');
-                setPlacedOrder(null);
-                setOrderError('');
-              }}
-            >
-              Order Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <OrderConfirmation order={placedOrder} onViewOrders={() => setPage('my-orders')}
+      onOrderAgain={() => { setStep('cart'); setPlacedOrder(null); setOrderError(''); }} />;
   }
 
   return (
-    <CheckoutErrorBoundary onReset={() => { setStep('browse'); setPlacedOrder(null); setOrderError(''); }}>
-      <div>
-        <SectionHeader
-          title="Campus Food Menu"
-          subtitle="One unified food counter • Browse dishes & thalis, book your pickup slot, skip the line"
-          actions={
-            <button
-              className="btn btn-primary"
-              onClick={() => cartCount > 0 && setStep('cart')}
-              disabled={cartCount === 0}
-            >
-              <ShoppingCart size={16} /> Cart ({cartCount}) — ₹{cartTotal}
-            </button>
-          }
-        />
+    <CheckoutErrorBoundary onReset={() => { setStep('cart'); setPlacedOrder(null); setOrderError(''); }}>
+      <div className={cartCount > 0 ? 'has-cart-bar' : ''}>
+      <SectionHeader title="Place order" subtitle="Choose dishes, pick a pickup slot and confirm. Prices and stock are checked again when you order." />
 
-        <div className="order-page-layout">
-
-          {/* ── Left Column: Unified Product Catalogue ──────────────────────── */}
-          <div>
-            {/* Search, Filter & Sort Bar */}
-            <div className="flex gap-sm mb-md flex-wrap items-center">
-              <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
-                <Search size={16} className="search-icon" />
-                <input
-                  placeholder="Search 40+ canteen items (Vada Pav, Thali, Dosa...)"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-              </div>
-
-              <select
-                className="form-input"
-                style={{ width: 170, cursor: 'pointer' }}
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value)}
-              >
-                <option value="popular">🔥 Most Popular</option>
-                <option value="price-low">💰 Price: Low to High</option>
-                <option value="price-high">💎 Price: High to Low</option>
-                <option value="name">🔤 Name: A to Z</option>
+      <div className="order-layout">
+        <section className="order-catalog" aria-label="Menu">
+          <MenuFilters search={searchQuery} onSearch={setSearchQuery} category={categoryFilter} onCategory={setCategoryFilter} counts={counts}>
+            <label className="sort-field">
+              <span className="sr-only">Sort dishes</span>
+              <select className="form-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+                {SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
-            </div>
+            </label>
+          </MenuFilters>
 
-            {/* Category Filter Pills */}
-            <div className="tab-list mb-lg" style={{ overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: 4 }}>
-              {categories.map(cat => (
-                <div
-                  key={cat.key}
-                  className={`tab-item ${categoryFilter === cat.key ? 'active' : ''}`}
-                  onClick={() => setCategoryFilter(cat.key)}
-                >
-                  <span style={{ marginRight: 6 }}>{cat.icon}</span>
-                  {cat.label}
-                </div>
+          <div className="results-bar">
+            <span className="body-sm text-secondary">{filteredItems.length} dish{filteredItems.length === 1 ? '' : 'es'}</span>
+            <span className="live-indicator"><span className="status-dot online" aria-hidden="true" /> Stock from the kitchen</span>
+          </div>
+
+          {menuStatus === 'error' && menuItems.length === 0 ? (
+            <div className="alert alert-danger" role="alert">
+              <CircleAlert size={16} aria-hidden="true" />
+              <span>The menu could not be loaded. Check your connection and try again.</span>
+              <button type="button" className="btn btn-outline btn-sm" onClick={fetchMeals}>Retry</button>
+            </div>
+          ) : menuItems.length === 0 ? (
+            <div className="menu-grid" aria-busy="true" aria-label="Loading the menu">
+              {Array.from({ length: 6 }, (_, i) => <div key={i} className="skeleton" style={{ aspectRatio: '4 / 5' }} />)}
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <EmptyState icon={SearchX} title="No dishes match" message="Try another keyword or category."
+              action={<button type="button" className="btn btn-outline btn-sm" onClick={() => { setSearchQuery(''); setCategoryFilter('all'); }}>Clear filters</button>} />
+          ) : (
+            <div className="menu-grid">
+              {filteredItems.map(item => (
+                <MenuCard key={item.id} item={item} qty={getCartQty(item.id)}
+                  onAdd={() => addItem(item)} onRemove={() => removeFromCart(item.id)} />
               ))}
             </div>
+          )}
+        </section>
 
-            {/* Live Count and Availability Badge */}
-            <div className="flex justify-between items-center mb-md">
-              <div className="body-sm text-secondary">
-                Showing <strong>{filteredItems.length}</strong> canteen items
-              </div>
-              <div className="flex items-center gap-xs">
-                <div className="status-dot online pulse" />
-                <span className="caption text-success">Live Kitchen Inventory</span>
-              </div>
-            </div>
+        <aside className="order-summary" aria-label="Your order" id="order-summary">
+          <ol className="stepper" aria-label="Checkout steps">
+            {STEPS.map((s, idx) => {
+              const current = STEPS.findIndex(x => x.key === activeStep);
+              return (
+                <li key={s.key} className={idx < current ? 'done' : idx === current ? 'current' : ''} aria-current={idx === current ? 'step' : undefined}>
+                  <span><span className="stepper-index">{idx + 1}.</span>{s.label}{idx < current && <span className="sr-only"> (done)</span>}</span>
+                </li>
+              );
+            })}
+          </ol>
 
-            {/* Empty or Loaded Products Grid */}
-            {filteredItems.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: 'var(--space-3xl)' }}>
-                <div style={{ fontSize: '3rem', marginBottom: 'var(--space-md)' }}>🔍</div>
-                <h3 className="heading-md mb-xs">No items match your search</h3>
-                <p className="body-sm text-muted mb-md">Try searching for a different keyword or switch category filters.</p>
-                <button className="btn btn-ghost" onClick={() => { setSearchQuery(''); setCategoryFilter('all'); }}>
-                  Clear Filters
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-2 gap-md">
-                {filteredItems.map(item => (
-                  <UnifiedMenuItemCard
-                    key={item.id}
-                    item={item}
-                    qty={getCartQty(item.id)}
-                    onAdd={() => addToCart(item)}
-                    onRemove={() => removeFromCart(item.id)}
-                  />
-                ))}
-              </div>
-            )}
+          {activeStep === 'cart' && (
+            <CartPanel cart={cart} cartTotal={cartTotal} cartCount={cartCount} hasUnavailable={cartHasUnavailable}
+              menuItemFor={menuItemFor} onAdd={addToCart} onRemove={removeFromCart} onClear={() => setConfirmClear(true)}
+              onProceed={() => setStep('slot')} />
+          )}
+
+          {activeStep === 'slot' && (
+            <SlotPanel slots={openSlots} selected={selectedSlot} onSelect={setSelectedSlot}
+              onBack={() => setStep('cart')} onProceed={() => setStep('payment')} />
+          )}
+
+          {activeStep === 'payment' && (
+            <PaymentPanel cart={cart} cartTotal={cartTotal} hasUnavailable={cartHasUnavailable}
+              slot={slots.find(s => s.id === selectedSlot)}
+              payMethod={payMethod} setPayMethod={setPayMethod}
+              simulateFailure={simulateFailure} setSimulateFailure={setSimulateFailure}
+              orderError={orderError} loading={isSubmitting}
+              onBack={() => setStep('slot')} onConfirm={handlePlaceOrder}
+              onChangeSlot={() => { setOrderError(''); setSelectedSlot(''); setStep('slot'); }} />
+          )}
+        </aside>
+      </div>
+
+      {cartCount > 0 && (
+        <div className="cart-bar" role="region" aria-label="Order summary">
+          <div className="cart-bar-summary">
+            <ShoppingBag size={18} aria-hidden="true" />
+            <span><strong>{cartCount}</strong> item{cartCount === 1 ? '' : 's'} · <strong>₹{cartTotal}</strong></span>
           </div>
-
-          {/* ── Right Column: Interactive Checkout Panel ─────────────────────── */}
-          <div className="order-sidebar-sticky">
-            {/* Step 1: Cart Review */}
-            {(step === 'browse' || step === 'cart') && (
-              <CartPanel
-                cart={cart}
-                cartTotal={cartTotal}
-                onRemove={removeFromCart}
-                onClear={clearCart}
-                onProceed={() => setStep('slot')}
-              />
-            )}
-
-            {/* Step 2: Pickup Slot Selection */}
-            {step === 'slot' && (
-              <SlotPanel
-                slots={lunchSlots}
-                selected={selectedSlot}
-                onSelect={setSelectedSlot}
-                notes={notes}
-                onNotes={setNotes}
-                onBack={() => setStep('cart')}
-                onProceed={() => setStep('payment')}
-              />
-            )}
-
-            {/* Step 3: Payment & Order Submission */}
-            {step === 'payment' && (
-              <PaymentPanel
-                cart={cart}
-                cartTotal={cartTotal}
-                slot={slots.find(s => s.id === selectedSlot)}
-                payMethod={payMethod}
-                setPayMethod={setPayMethod}
-                simulateFailure={simulateFailure}
-                setSimulateFailure={setSimulateFailure}
-                orderError={orderError}
-                loading={isSubmitting}
-                onBack={() => setStep('slot')}
-                onConfirm={handlePlaceOrder}
-              />
-            )}
-          </div>
+          <button type="button" className="btn btn-primary" onClick={() => document.getElementById('order-summary')?.scrollIntoView({ behavior: 'smooth' })}>
+            Continue
+          </button>
         </div>
+      )}
+
+      {confirmClear && (
+        <ConfirmDialog title="Clear your order?" message="All dishes will be removed from your order."
+          confirmLabel="Clear order" cancelLabel="Keep dishes" danger
+          onConfirm={() => { clearCart(); setConfirmClear(false); }} onCancel={() => setConfirmClear(false)} />
+      )}
       </div>
     </CheckoutErrorBoundary>
   );
 }
 
-// ─── Unified Menu Item Card ──────────────────────────────────────────────────
-function UnifiedMenuItemCard({ item, qty, onAdd, onRemove }) {
-  const soldOut = !item.available || item.qty === 0;
-  const lowStock = item.available && item.qty > 0 && item.qty < 25;
-
-  const getCategoryBadge = (cat) => {
-    switch (cat) {
-      case 'thali': return { label: '🍱 Thali Combo', className: 'badge-primary' };
-      case 'snacks': return { label: '🍔 Snack', className: 'badge-warning' };
-      case 'south-indian': return { label: '🥞 South Indian', className: 'badge-info' };
-      case 'beverages': return { label: '🥤 Drink', className: 'badge-muted' };
-      default: return { label: '🍛 Meal Bowl', className: 'badge-success' };
-    }
-  };
-
-  const badge = getCategoryBadge(item.category);
-
-  return (
-    <div className={`menu-item-card ${soldOut ? 'sold-out' : ''}`} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-      <div>
-        <div className="flex justify-between items-start mb-xs">
-          <span style={{ fontSize: '2.4rem' }}>{item.emoji}</span>
-          <div style={{ textAlign: 'right' }}>
-            <div className="heading-lg text-brand" style={{ fontWeight: 800 }}>₹{item.price}</div>
-            <span className={`badge ${badge.className}`} style={{ fontSize: '0.65rem' }}>{badge.label}</span>
-          </div>
-        </div>
-
-        <div className="heading-sm mb-xs" style={{ marginTop: 4 }}>{item.name}</div>
-        <div className="caption text-muted mb-sm" style={{ minHeight: 36, lineHeight: 1.4 }}>
-          {item.description || 'Fresh campus meal freshly prepared today.'}
-        </div>
-      </div>
-
-      <div>
-        <div className="caption mb-sm" style={{ color: soldOut ? 'var(--color-danger)' : lowStock ? 'var(--color-warning)' : 'var(--text-muted)' }}>
-          {soldOut ? '❌ Sold Out' : lowStock ? `⚠️ Only ${item.qty} left in stock!` : `🟢 ${item.qty} portions available`}
-        </div>
-
-        <div className="flex justify-between items-center">
-          <span className="caption text-muted">⭐ {item.rating || '4.5'}</span>
-          {soldOut ? (
-            <button className="btn btn-ghost btn-sm" disabled style={{ opacity: 0.6 }}>Sold Out</button>
-          ) : qty === 0 ? (
-            <button className="btn btn-primary btn-sm" onClick={onAdd}>
-              <Plus size={14} /> Add to Cart
-            </button>
-          ) : (
-            <div className="quantity-controls">
-              <button className="qty-btn" onClick={onRemove}><Minus size={14} /></button>
-              <span className="qty-value">{qty}</span>
-              <button className="qty-btn" onClick={onAdd}><Plus size={14} /></button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Cart Panel ─────────────────────────────────────────────────────────────
-function CartPanel({ cart, cartTotal, onRemove, onClear, onProceed }) {
+function CartPanel({ cart, cartTotal, cartCount, hasUnavailable, menuItemFor, onAdd, onRemove, onClear, onProceed }) {
   if (cart.length === 0) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: 'var(--space-xl)' }}>
-        <div style={{ fontSize: '3rem', marginBottom: 'var(--space-md)' }}>🛒</div>
-        <div className="heading-md mb-xs">Your Cart is Empty</div>
-        <div className="body-sm text-muted">Add delicious food items from the menu to build your campus meal order.</div>
+      <div className="card">
+        <EmptyState icon={ShoppingBag} title="Your order is empty" message="Add dishes from the menu to start an order." />
       </div>
     );
   }
 
   return (
-    <div className="card">
-      <div className="flex justify-between items-center mb-md">
-        <h3 className="heading-lg">Your Order ({cart.reduce((s, i) => s + i.qty, 0)})</h3>
-        <button className="btn btn-ghost btn-sm" onClick={onClear} style={{ color: 'var(--color-danger)' }}>
-          <Trash2 size={14} /> Clear
+    <div className="card summary-card">
+      <div className="summary-header">
+        <h2 className="heading-md">Your order <span className="text-muted">({cartCount})</span></h2>
+        <button type="button" className="btn btn-ghost btn-sm text-danger" onClick={onClear}>
+          <Trash2 size={14} aria-hidden="true" /> Clear order
         </button>
       </div>
 
-      {/* Unified Cart Items list */}
-      <div style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 'var(--space-md)', paddingRight: 4 }}>
-        {cart.map(item => (
-          <div
-            key={item.menuItemId}
-            className="flex justify-between items-center"
-            style={{ padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}
-          >
-            <div className="flex items-center gap-sm">
-              <span style={{ fontSize: '1.25rem' }}>{item.emoji || '🍽️'}</span>
-              <div>
-                <div className="label">{item.name}</div>
-                <div className="caption text-muted">₹{item.price} × {item.qty}</div>
+      <ul className="cart-lines">
+        {cart.map(line => {
+          const item = menuItemFor(line);
+          return (
+            <li key={line.menuItemId} className={`cart-line ${line.unavailable ? 'is-unavailable' : ''}`}>
+              <MealImage item={{ name: line.name, imageUrl: line.imageUrl }} alt="" className="meal-thumb" showLabel={false} />
+              <div className="cart-line-main">
+              <div className="cart-line-info">
+                <span className="cart-line-name">{line.name}</span>
+                <span className="caption text-muted">₹{line.price} each</span>
+                {line.unavailable && <span className="caption text-danger">No longer available — remove it to continue</span>}
               </div>
-            </div>
-            <div className="flex items-center gap-sm">
-              <span className="label text-brand">₹{item.price * item.qty}</span>
-              <button
-                className="btn btn-ghost btn-icon btn-sm"
-                onClick={() => onRemove(item.menuItemId)}
-                style={{ color: 'var(--color-danger)' }}
-                title="Remove item"
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          </div>
-        ))}
+              <div className="cart-line-controls">
+                {line.unavailable || !item ? (
+                  <button type="button" className="btn btn-ghost btn-sm text-danger"
+                    onClick={() => { for (let i = 0; i < line.qty; i++) onRemove(line.menuItemId); }}>Remove</button>
+                ) : (
+                  <QuantityStepper name={line.name} qty={line.qty} max={item.qty} onAdd={() => onAdd(item)} onRemove={() => onRemove(line.menuItemId)} />
+                )}
+                <span className="cart-line-total">₹{line.price * line.qty}</span>
+              </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="summary-total">
+        <span>Total</span>
+        <span className="price">₹{cartTotal}</span>
       </div>
+      <p className="caption text-muted">The kitchen confirms prices and stock when you place the order.</p>
 
-      <div className="divider" style={{ margin: '12px 0' }} />
-
-      <div className="flex justify-between items-center mb-md">
-        <span className="heading-md">Estimated Total</span>
-        <span className="heading-lg text-success">₹{cartTotal}</span>
-      </div>
-
-      <button className="btn btn-primary btn-full btn-lg" onClick={onProceed}>
-        Select Pickup Slot <ArrowRight size={16} />
+      <button type="button" className="btn btn-primary btn-full" onClick={onProceed} disabled={hasUnavailable}>
+        Choose pickup slot <ArrowRight size={16} aria-hidden="true" />
       </button>
     </div>
   );
 }
 
 // ─── Slot Selection Panel ───────────────────────────────────────────────────
-function SlotPanel({ slots, selected, onSelect, notes, onNotes, onBack, onProceed }) {
+function SlotPanel({ slots, selected, onSelect, onBack, onProceed }) {
+  const anyOpen = slots.some(s => s.booked < s.capacity && !slotHasEnded(s));
   return (
-    <div className="card">
-      <div className="flex items-center gap-sm mb-md">
-        <button className="btn btn-ghost btn-sm btn-icon" onClick={onBack} title="Back">
-          <ArrowLeft size={16} />
-        </button>
-        <h3 className="heading-lg">Choose Pickup Slot</h3>
+    <div className="card summary-card">
+      <div className="summary-header">
+        <h2 className="heading-md">Pickup slot</h2>
       </div>
+      <p className="body-sm text-muted">Pick a 15-minute window today. Your place is reserved only when the order is confirmed.</p>
 
-      <div className="caption text-muted mb-md">
-        Select a 15-minute collection window to eliminate queue time at the mess.
-      </div>
-
-      <div className="mb-lg">
+      {slots.length === 0 ? (
+        <div className="loading-row" role="status"><Spinner /> Loading pickup slots…</div>
+      ) : (
         <SlotPicker slots={slots} selected={selected} onSelect={onSelect} />
-      </div>
+      )}
+      {slots.length > 0 && !anyOpen && (
+        <div className="alert alert-warning"><AlertTriangle size={16} aria-hidden="true" /><span>Every remaining slot today is full or has ended.</span></div>
+      )}
 
-      <div className="form-group mb-lg">
-        <label className="form-label">Special Instructions (optional)</label>
-        <textarea
-          className="form-input form-textarea"
-          style={{ minHeight: 65 }}
-          placeholder="e.g. Less spicy, pack chutney separately..."
-          value={notes}
-          onChange={e => onNotes(e.target.value)}
-        />
-      </div>
-
-      <div className="flex gap-sm">
-        <button className="btn btn-ghost flex-1" onClick={onBack}>
-          ← Back
-        </button>
-        <button className="btn btn-primary flex-1" disabled={!selected} onClick={onProceed}>
-          Proceed to Pay →
+      <div className="button-row">
+        <button type="button" className="btn btn-ghost" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" /> Back</button>
+        <button type="button" className="btn btn-primary" disabled={!selected} onClick={onProceed}>
+          Continue to payment <ArrowRight size={16} aria-hidden="true" />
         </button>
       </div>
     </div>
   );
 }
 
-// ─── Payment Panel (with honest simulation and robust submission) ───────────
+// ─── Payment Panel ──────────────────────────────────────────────────────────
+const PAYMENT_METHODS = [
+  { id: 'UPI', label: 'UPI', note: 'Simulated instant payment' },
+  { id: 'Card', label: 'Debit / credit card', note: 'Simulated card authorization' },
+  { id: 'Mess Wallet', label: 'Mess wallet', note: 'Simulated campus card deduction' },
+  { id: 'Cash (at counter)', label: 'Cash at counter', note: 'Pay when you collect' },
+];
+
 function PaymentPanel({
-  cart, cartTotal, slot, payMethod, setPayMethod,
-  simulateFailure, setSimulateFailure,
-  orderError, loading, onBack, onConfirm,
+  cart, cartTotal, hasUnavailable, slot, payMethod, setPayMethod,
+  simulateFailure, setSimulateFailure, orderError, loading, onBack, onConfirm, onChangeSlot,
 }) {
-  const paymentMethods = [
-    { id: 'UPI', label: 'UPI (GPay / PhonePe / Paytm)', note: 'Simulated Instant Demo Payment' },
-    { id: 'Card', label: 'Debit / Credit Card', note: 'Simulated Card Authorization' },
-    { id: 'Mess Wallet', label: 'Mess Wallet (Student RFID)', note: 'Campus Card Account (Demo)' },
-    { id: 'Cash (at counter)', label: 'Pay Cash at Counter', note: 'Pay in cash upon food pickup' },
-  ];
-
+  const slotProblem = /slot/i.test(orderError || '');
   return (
-    <div className="card">
-      <div className="flex items-center gap-sm mb-md">
-        <button className="btn btn-ghost btn-sm btn-icon" onClick={onBack} title="Back" disabled={loading}>
-          <ArrowLeft size={16} />
-        </button>
-        <div>
-          <h3 className="heading-lg">Review & Payment</h3>
-          <span className="caption text-muted">DEMO PAYMENT — No real money charged</span>
-        </div>
+    <div className="card summary-card">
+      <div className="summary-header">
+        <h2 className="heading-md">Review &amp; pay</h2>
       </div>
 
-      {/* Order Summary Box */}
-      <div className="card-glass mb-md" style={{ padding: 'var(--space-md)' }}>
-        <div className="caption text-muted mb-xs" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>Order Summary</div>
-        {cart.map(item => (
-          <div key={item.menuItemId} className="flex justify-between mb-xs body-sm">
-            <span>{item.emoji || '🍽️'} {item.name} ×{item.qty}</span>
-            <span className="label">₹{item.price * item.qty}</span>
-          </div>
+      <ul className="summary-lines">
+        {cart.map(line => (
+          <li key={line.menuItemId}><span>{line.name} × {line.qty}</span><span>₹{line.price * line.qty}</span></li>
         ))}
+      </ul>
+      <div className="summary-total"><span>Total</span><span className="price">₹{cartTotal}</span></div>
+      {slot && (
+        <p className="body-sm text-secondary flex justify-between items-center">
+          <span>Pickup <strong className="text-primary">{slot.label}</strong></span>
+          <button type="button" className="btn btn-link btn-sm" onClick={onChangeSlot} disabled={loading}>Change slot</button>
+        </p>
+      )}
 
-        <div className="divider" style={{ margin: '10px 0' }} />
-
-        <div className="flex justify-between items-center">
-          <span className="heading-sm">Total Amount</span>
-          <span className="heading-lg text-success">₹{cartTotal}</span>
-        </div>
-        {slot && (
-          <div className="caption text-brand" style={{ marginTop: 6, fontWeight: 600 }}>
-            📍 Pickup Slot: {slot.label}
-          </div>
-        )}
+      <div className="alert alert-info">
+        <Info size={16} aria-hidden="true" />
+        <span>Online payments use the <strong>test payment simulator</strong> — no real money is charged. Your order and stock are saved for real.</span>
       </div>
 
-      {/* Honest Payment Demonstration Banner */}
-      <div className="alert alert-info mb-md" style={{ padding: '10px 12px' }}>
-        <ShieldCheck size={18} style={{ flexShrink: 0, color: 'var(--brand-primary)' }} />
-        <div className="caption" style={{ lineHeight: 1.4 }}>
-          <strong>DEMO PAYMENT — No real money charged:</strong> No actual financial credentials or PINs are needed. Orders and stock are verified and saved in the real MySQL database.
-        </div>
-      </div>
+      <fieldset className="radio-list" disabled={loading}>
+        <legend className="form-label">Payment method</legend>
+        {PAYMENT_METHODS.map(m => (
+          <label key={m.id} className={`radio-option ${payMethod === m.id ? 'selected' : ''}`}>
+            <input type="radio" name="payMethod" value={m.id} checked={payMethod === m.id} onChange={() => setPayMethod(m.id)} />
+            <span>
+              <span className="label">{m.label}</span>
+              <span className="caption text-muted">{m.note}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
 
-      {/* Payment Methods Selection */}
-      <div className="mb-md">
-        <div className="form-label mb-xs">Select Payment Method</div>
-        {paymentMethods.map(m => {
-          const selected = payMethod === m.id;
-          return (
-            <div
-              key={m.id}
-              onClick={() => !loading && setPayMethod(m.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '10px 12px',
-                background: selected ? 'rgba(108,99,255,0.12)' : 'var(--bg-elevated)',
-                borderRadius: 'var(--radius-md)',
-                border: `1px solid ${selected ? 'var(--brand-primary)' : 'var(--border-subtle)'}`,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                marginBottom: 8,
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <div
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: '50%',
-                  border: `2px solid ${selected ? 'var(--brand-primary)' : 'var(--border-default)'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                {selected && <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--brand-primary)' }} />}
-              </div>
-              <div>
-                <div className="label" style={{ fontSize: '0.82rem' }}>{m.label}</div>
-                <div className="caption text-muted" style={{ fontSize: '0.7rem' }}>{m.note}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Controlled Payment Failure Toggle (Test Mode) */}
-      <div
-        className="card-glass mb-md"
-        style={{
-          padding: '10px 12px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          cursor: loading ? 'not-allowed' : 'pointer',
-          border: simulateFailure ? '1px solid var(--color-danger)' : '1px solid var(--border-subtle)'
-        }}
-        onClick={() => !loading && setSimulateFailure(prev => !prev)}
-      >
-        <input
-          type="checkbox"
-          id="simulateFailureCheckbox"
-          checked={simulateFailure}
-          onChange={e => setSimulateFailure(e.target.checked)}
-          disabled={loading}
-          style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--color-danger)' }}
-        />
-        <label htmlFor="simulateFailureCheckbox" style={{ cursor: 'pointer', userSelect: 'none', fontSize: '0.78rem', color: simulateFailure ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
-          <strong>Simulate Payment Failure</strong> (Test Mode: verifies rollback & prevents stock loss)
+      <details>
+        <summary className="caption text-muted">Testing options</summary>
+        <label className="checkbox-option mt-sm">
+          <input type="checkbox" checked={simulateFailure} onChange={e => setSimulateFailure(e.target.checked)} disabled={loading} />
+          <span className="body-sm">Simulate a declined payment (checks that nothing is charged and stock is restored)</span>
         </label>
-      </div>
+      </details>
 
-      {/* Error Message Alert */}
       {orderError && (
-        <div className="alert alert-danger mb-md">
-          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-          <span>{orderError}</span>
+        <div className="alert alert-danger" role="alert">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>
+            {orderError}
+            {slotProblem && <> <button type="button" className="btn btn-link btn-sm" onClick={onChangeSlot}>Choose another slot</button></>}
+          </span>
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex gap-sm">
-        <button className="btn btn-ghost flex-1" onClick={onBack} disabled={loading}>
-          ← Back
+      <div className="button-row">
+        <button type="button" className="btn btn-ghost" onClick={onBack} disabled={loading}><ArrowLeft size={16} aria-hidden="true" /> Back</button>
+        <button type="button" className="btn btn-primary" onClick={onConfirm} disabled={loading || hasUnavailable}>
+          {loading ? <><Spinner /> Placing order…</> : <>Place order · ₹{cartTotal}</>}
         </button>
-        <button
-          className="btn btn-success flex-1"
-          onClick={onConfirm}
-          disabled={loading}
-          style={{ fontWeight: 700 }}
-        >
-          {loading ? (
-            <span className="flex items-center gap-sm justify-center">
-              <div className="animate-spin" style={{ width: 16, height: 16, border: '2px solid rgba(0,0,0,0.3)', borderTopColor: '#0A0B14', borderRadius: '50%' }} />
-              Placing Order…
-            </span>
-          ) : (
-            <span className="flex items-center gap-sm justify-center">
-              <CheckCircle size={16} /> Place Order (₹{cartTotal})
-            </span>
-          )}
-        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Confirmation & QR ticket ───────────────────────────────────────────────
+function OrderConfirmation({ order, onViewOrders, onOrderAgain }) {
+  const isCash = order.paymentStatus === 'PENDING_CASH';
+  const counters = [...new Set((order.items || []).map(i => counterFor(i.category)))];
+  return (
+    <div className="narrow-page">
+      <div className="card confirmation-card" role="status">
+        <span className="confirm-mark" aria-hidden="true"><Check size={26} strokeWidth={2.5} /></span>
+        <h1 className="display-md">Order confirmed</h1>
+        <p className="body-md text-secondary">
+          Your place in the <strong className="text-primary">{order.slotLabel}</strong> slot is reserved. Show this QR ticket at the {counters.join(' and ').toLowerCase()}.
+        </p>
+
+        <div className="qr-ticket">
+          <QRCodeSVG value={order.qrCodeData || order.id} size={184} bgColor="#ffffff" fgColor="#20211D" level="H"
+            title={`QR ticket for order ${order.id}`} />
+          <div className="qr-ticket-id">{order.id}</div>
+        </div>
+
+        <dl className="detail-list">
+          <div><dt>Order number</dt><dd className="mono">{order.id}</dd></div>
+          <div><dt>Pickup slot</dt><dd>{order.slotLabel}</dd></div>
+          <div><dt>Payment</dt><dd>{order.payMethod || 'UPI'} · {isCash ? 'pay in cash at pickup' : 'paid (test payment)'}</dd></div>
+          {order.transactionId && <div><dt>Transaction</dt><dd className="mono">{order.transactionId}</dd></div>}
+        </dl>
+
+        <div style={{ textAlign: 'left' }}><OrderTimeline order={order} /></div>
+
+        <ul className="summary-lines">
+          {(order.items || []).map((item, idx) => (
+            <li key={idx}><span>{item.name} × {item.qty}</span><span>₹{item.price * item.qty}</span></li>
+          ))}
+        </ul>
+        <div className="summary-total"><span>{isCash ? 'Total due' : 'Total paid'}</span><span className="price">₹{order.total}</span></div>
+
+        <div className="button-row">
+          <button type="button" className="btn btn-primary" onClick={onViewOrders}><QrCode size={16} aria-hidden="true" /> Track in My orders</button>
+          <button type="button" className="btn btn-outline" onClick={onOrderAgain}>Order something else</button>
+        </div>
       </div>
     </div>
   );
