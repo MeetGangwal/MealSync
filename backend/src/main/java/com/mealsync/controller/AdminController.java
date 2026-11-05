@@ -1,5 +1,6 @@
 package com.mealsync.controller;
 
+import com.mealsync.security.Roles;
 import com.mealsync.dto.AdminOverviewResponse;
 import com.mealsync.dto.CounterOrderRequest;
 import com.mealsync.dto.OrderItemRequest;
@@ -14,6 +15,8 @@ import com.mealsync.repository.MealRepository;
 import com.mealsync.repository.OrderRepository;
 import com.mealsync.repository.UserRepository;
 import com.mealsync.service.PaymentService;
+import com.mealsync.service.ReportingService;
+import com.mealsync.dto.FinancialSummary;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -56,6 +59,9 @@ public class AdminController {
     @Autowired
     private PaymentService paymentService;
 
+    @Autowired
+    private ReportingService reporting;
+
     // Allowed status transitions
     private static final Map<String, Set<String>> VALID_TRANSITIONS = new HashMap<>();
 
@@ -78,21 +84,16 @@ public class AdminController {
         List<Meal> allMeals = mealRepository.findAll();
 
         long totalOrders = allOrders.size();
-        LocalDate today = LocalDate.now();
 
-        long todayOrders = 0;
-        double todaySales = 0.0;
+        // "Today" is the campus business day; revenue uses the shared financial definitions
+        // (collected = PAID and not cancelled), identical to Payment Records and Analytics.
+        List<Order> todays = reporting.onDay(allOrders, reporting.today());
+        FinancialSummary todaySummary = reporting.summarize(todays);
+        long todayOrders = todays.stream().filter(o -> !ReportingService.isCancelled(o)).count();
+        double todaySales = todaySummary.collectedRevenue();
+
         long pendingOrders = 0;
-
         for (Order o : allOrders) {
-            LocalDateTime ot = o.getOrderTime();
-            if (ot != null && ot.toLocalDate().isEqual(today)) {
-                todayOrders++;
-                if (!"CANCELLED".equalsIgnoreCase(o.getStatus())) {
-                    todaySales += (o.getTotalAmount() != null ? o.getTotalAmount() : 0.0);
-                }
-            }
-
             String st = o.getStatus() != null ? o.getStatus().toUpperCase() : "";
             if ("PENDING".equals(st) || "CONFIRMED".equals(st) || "PREPARING".equals(st) || "READY".equals(st)) {
                 pendingOrders++;
@@ -119,7 +120,8 @@ public class AdminController {
                 pendingOrders,
                 availableProducts,
                 soldOutProducts,
-                recentOrders
+                recentOrders,
+                todaySummary
         );
 
         return ResponseEntity.ok(response);
@@ -251,12 +253,14 @@ public class AdminController {
             ));
         }
 
-        // If order is cancelled, restore stock for each item
+        // If order is cancelled, restore stock for each item (row-locked, like customer cancellation)
+        // and record the payment outcome, so a cancelled order is never counted as collected revenue.
         if ("CANCELLED".equals(targetStatus) && !"CANCELLED".equals(currentStatus)) {
             if (order.getItems() != null) {
                 for (OrderItem item : order.getItems()) {
-                    Meal meal = item.getMeal();
-                    if (meal != null && item.getQuantity() != null) {
+                    if (item.getMeal() != null && item.getQuantity() != null) {
+                        Meal meal = mealRepository.findByIdForUpdate(item.getMeal().getId()).orElse(null);
+                        if (meal == null) continue;
                         int restored = (meal.getAvailableQuantity() != null ? meal.getAvailableQuantity() : 0) + item.getQuantity();
                         meal.setAvailableQuantity(restored);
                         if (restored > 0) {
@@ -266,6 +270,12 @@ public class AdminController {
                     }
                 }
             }
+            order.setPaymentStatus("PAID".equalsIgnoreCase(order.getPaymentStatus()) ? "REFUNDED" : "CANCELLED");
+        }
+
+        // Collecting a cash-on-pickup order means the cash was received at the counter.
+        if ("COMPLETED".equals(targetStatus) && "PENDING_CASH".equalsIgnoreCase(order.getPaymentStatus())) {
+            order.setPaymentStatus("PAID");
         }
 
         order.setStatus(targetStatus);
@@ -278,13 +288,15 @@ public class AdminController {
     // -----------------------------------------------------------------------
 
     @GetMapping("/customers/search")
-    public ResponseEntity<List<Map<String, Object>>> searchCustomers(@RequestParam(required = false, defaultValue = "") String q) {
-        String query = q.trim();
+    public ResponseEntity<List<Map<String, Object>>> searchCustomers(
+            @RequestParam(required = false, defaultValue = "") String q,
+            @RequestParam(required = false, defaultValue = "") String query) {
+        String term = (q.isBlank() ? query : q).trim();
         List<User> users;
-        if (query.isEmpty()) {
+        if (term.isEmpty()) {
             users = userRepository.findAll();
         } else {
-            users = userRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(query, query);
+            users = userRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(term, term);
         }
 
         List<Map<String, Object>> result = new ArrayList<>();
@@ -293,7 +305,7 @@ public class AdminController {
             map.put("id", u.getId());
             map.put("name", u.getName());
             map.put("email", u.getEmail());
-            map.put("role", u.getRole());
+            map.put("role", Roles.normalize(u.getRole()));
             map.put("phone", u.getPhone() != null ? u.getPhone() : "");
             map.put("uid", u.getUid() != null ? u.getUid() : "");
             result.add(map);
@@ -384,21 +396,26 @@ public class AdminController {
 
         for (OrderItemRequest itemReq : request.getItems()) {
             if (itemReq.getMenuItemId() == null) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest().body(Map.of("error", "Each item must specify a menuItemId"));
             }
             if (itemReq.getQty() == null || itemReq.getQty() < 1) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest().body(Map.of("error", "Quantity must be at least 1"));
             }
 
             // Lock meal with pessimistic write lock (SELECT ... FOR UPDATE)
             Meal meal = mealRepository.findByIdForUpdate(itemReq.getMenuItemId()).orElse(null);
             if (meal == null) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest().body(Map.of("error", "Meal not found: " + itemReq.getMenuItemId()));
             }
             if (!Boolean.TRUE.equals(meal.getIsAvailable())) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest().body(Map.of("error", "Meal is currently unavailable: " + meal.getName()));
             }
             if (meal.getAvailableQuantity() == null || meal.getAvailableQuantity() < itemReq.getQty()) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                         "error", "Insufficient stock for: " + meal.getName()
                                 + " (requested: " + itemReq.getQty()
@@ -412,6 +429,7 @@ public class AdminController {
             orderItem.setMeal(meal);
             orderItem.setQuantity(itemReq.getQty());
             orderItem.setPriceAtTimeOfOrder(meal.getPrice());
+            orderItem.setItemName(meal.getName());
             order.getItems().add(orderItem);
 
             total += meal.getPrice() * itemReq.getQty();
@@ -474,66 +492,12 @@ public class AdminController {
         return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }
 
-    // -----------------------------------------------------------------------
-    // Payment & Customer Records (Priority 4)
-    // -----------------------------------------------------------------------
+    // Payment records: see AdminReportController (/api/admin/payment-records)
 
-    @GetMapping("/payment-records")
-    public ResponseEntity<List<Order>> getPaymentRecords(
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) String source,
-            @RequestParam(required = false) String method,
-            @RequestParam(required = false) String status
-    ) {
-        List<Order> allOrders = orderRepository.findAllByOrderByOrderTimeDesc();
-        List<Order> filtered = new ArrayList<>();
-
-        for (Order o : allOrders) {
-            // Source filter: PORTAL or COUNTER
-            if (source != null && !source.isBlank() && !"ALL".equalsIgnoreCase(source)) {
-                String src = o.getOrderSource() != null ? o.getOrderSource() : "PORTAL";
-                if (!src.equalsIgnoreCase(source.trim())) {
-                    continue;
-                }
-            }
-
-            // Payment method filter
-            if (method != null && !method.isBlank() && !"ALL".equalsIgnoreCase(method)) {
-                String m = o.getPaymentMethod() != null ? o.getPaymentMethod().toUpperCase() : "";
-                if (!m.contains(method.trim().toUpperCase())) {
-                    continue;
-                }
-            }
-
-            // Payment status filter
-            if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
-                String st = o.getPaymentStatus() != null ? o.getPaymentStatus().toUpperCase() : "PAID";
-                if (!st.equalsIgnoreCase(status.trim())) {
-                    continue;
-                }
-            }
-
-            // Search query across OrderNumber, CustomerName, Email, TransactionId
-            if (search != null && !search.isBlank()) {
-                String q = search.trim().toLowerCase();
-                boolean matchNumber = o.getOrderNumber() != null && o.getOrderNumber().toLowerCase().contains(q);
-                boolean matchCust = o.getCustomerName() != null && o.getCustomerName().toLowerCase().contains(q);
-                boolean matchEmail = o.getCustomerEmail() != null && o.getCustomerEmail().toLowerCase().contains(q);
-                boolean matchUser = o.getUser() != null && (
-                        (o.getUser().getName() != null && o.getUser().getName().toLowerCase().contains(q)) ||
-                        (o.getUser().getEmail() != null && o.getUser().getEmail().toLowerCase().contains(q)) ||
-                        (o.getUser().getUid() != null && o.getUser().getUid().toLowerCase().contains(q))
-                );
-                boolean matchTxn = o.getTransactionId() != null && o.getTransactionId().toLowerCase().contains(q);
-
-                if (!matchNumber && !matchCust && !matchEmail && !matchUser && !matchTxn) {
-                    continue;
-                }
-            }
-
-            filtered.add(o);
+    /** Rolls back stock already changed for earlier items when a later item is rejected. */
+    private static void markRollbackOnly() {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
         }
-
-        return ResponseEntity.ok(filtered);
     }
 }

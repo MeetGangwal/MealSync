@@ -18,4 +18,7 @@ public class AdminOverviewResponse {
     private long availableProducts;
     private long soldOutProducts;
     private List<Order> recentOrders;
+
+    /** Today's figures (campus business day) using the shared financial definitions. */
+    private FinancialSummary todaySummary;
 }

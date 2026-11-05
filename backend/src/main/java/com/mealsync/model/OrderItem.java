@@ -22,6 +22,14 @@ public class OrderItem {
     private Meal meal;
     
     private Integer quantity;
-    
+
     private Double priceAtTimeOfOrder;
+
+    /**
+     * Product name at the time of the order, so order history stays accurate after a product is
+     * renamed. Nullable for backward compatibility: items created before this column existed
+     * fall back to the current product name (see ReportingService.itemName).
+     */
+    @Column(name = "item_name")
+    private String itemName;
 }

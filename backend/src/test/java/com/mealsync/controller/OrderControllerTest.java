@@ -41,6 +41,7 @@ class OrderControllerTest {
     @Mock private UserRepository userRepository;
     @Mock private MealRepository mealRepository;
     @Mock private com.mealsync.service.PaymentService paymentService;
+    @Mock private com.mealsync.service.PickupSlotService pickupSlotService;
 
     @InjectMocks
     private OrderController orderController;

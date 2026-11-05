@@ -95,7 +95,8 @@ class ApplicationIntegrationTest {
         long before = mealRepository.count();
         // Remove two catalogue rows so both seeders race to re-insert them
         List<Meal> victims = mealRepository.findAll().stream()
-                .filter(m -> m.getName().equals("Vada Pav") || m.getName().equals("Masala Chai")).toList();
+                .filter(m -> m.getName().equals("Chapati") || m.getName().equals("Tomato Soup")).toList();
+        assertThat(victims).hasSize(2);
         mealRepository.deleteAll(victims);
 
         ExecutorService pool = Executors.newFixedThreadPool(2);

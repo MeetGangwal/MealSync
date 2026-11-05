@@ -3,9 +3,16 @@ package com.mealsync.service;
 import com.mealsync.dto.RegisterRequest;
 import com.mealsync.model.User;
 import com.mealsync.repository.UserRepository;
+import com.mealsync.security.Roles;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * Service layer for user-account operations.
@@ -19,6 +26,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class UserService {
+
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
 
     @Autowired
     private UserRepository userRepository;
@@ -47,12 +56,80 @@ public class UserService {
         user.setEmail(req.getEmail().trim().toLowerCase());
 
         // Force role to ROLE_USER — never trust the client-supplied value
-        user.setRole("ROLE_USER");
+        user.setRole(Roles.USER);
 
         // Hash the password with BCrypt before persisting
         user.setPassword(passwordEncoder.encode(req.getPassword()));
 
         return userRepository.save(user);
+    }
+
+    // -----------------------------------------------------------------------
+    // Role management (administrators only — enforced by SecurityConfig on /api/admin/**)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Changes a user's role to {@link Roles#ADMIN} or {@link Roles#USER}.
+     *
+     * Rules: the target must exist; an administrator cannot change their own role (prevents
+     * accidental lock-out and makes every promotion a second person's decision); the last
+     * administrator cannot be demoted. Administrator rows are locked for the duration of the
+     * transaction so concurrent demotions cannot remove every administrator.
+     *
+     * @param actorEmail email of the authenticated administrator (from the JWT principal)
+     * @param targetUserId user to change
+     * @param requestedRole "ADMIN" or "USER" (case-insensitive, optional "ROLE_" prefix)
+     * @throws IllegalArgumentException invalid role value
+     * @throws java.util.NoSuchElementException target user not found
+     * @throws IllegalStateException rule violation (own role, last administrator)
+     */
+    @Transactional
+    public User changeRole(String actorEmail, Long targetUserId, String requestedRole) {
+        String newRole = requestedRole == null ? "" : Roles.normalize(requestedRole);
+        if (!Roles.ADMIN.equals(newRole) && !Roles.USER.equals(newRole)) {
+            throw new IllegalArgumentException("Role must be ADMIN or USER");
+        }
+
+        List<User> admins = userRepository.findAdminsForUpdate();
+        User target = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new NoSuchElementException("User not found"));
+        User actor = userRepository.findByEmail(actorEmail)
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
+
+        if (actor.getId().equals(target.getId())) {
+            throw new IllegalStateException("You cannot change your own role");
+        }
+        if (newRole.equals(Roles.normalize(target.getRole()))) {
+            return target; // no change
+        }
+        if (Roles.USER.equals(newRole) && Roles.isAdmin(target.getRole()) && admins.size() <= 1) {
+            throw new IllegalStateException("Cannot remove the last administrator");
+        }
+
+        target.setRole(newRole);
+        User saved = userRepository.save(target);
+        logger.info("Role changed: user id {} -> {} by administrator id {}", saved.getId(), newRole, actor.getId());
+        return saved;
+    }
+
+    /**
+     * Operator bootstrap: promotes an already-registered account to administrator.
+     * Called only at start-up with the operator-configured MEALSYNC_BOOTSTRAP_ADMIN_EMAIL.
+     *
+     * @return true if the account was promoted, false if it was already an administrator
+     * @throws java.util.NoSuchElementException no account with that email exists
+     */
+    @Transactional
+    public boolean promoteBootstrapAdmin(String email) {
+        User user = userRepository.findByEmail(email.trim().toLowerCase())
+                .orElseThrow(() -> new NoSuchElementException("No registered account for the bootstrap administrator email"));
+        if (Roles.isAdmin(user.getRole())) {
+            return false;
+        }
+        user.setRole(Roles.ADMIN);
+        userRepository.save(user);
+        logger.info("Bootstrap administrator granted to user id {}", user.getId());
+        return true;
     }
 
     // -----------------------------------------------------------------------

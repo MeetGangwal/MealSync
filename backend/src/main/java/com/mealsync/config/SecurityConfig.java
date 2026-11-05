@@ -31,7 +31,7 @@ import java.util.List;
  *  - CSRF disabled (safe for stateless REST APIs using Authorization headers).
  *  - Centrally managed CORS policy supporting ports 5173, 5174, etc.
  *  - Public endpoints: /api/auth/** (register, login), GET /api/meals/**
- *  - Protected:        /api/orders/** requires USER, STUDENT, or ADMIN
+ *  - Protected:        /api/orders/** requires USER or STUDENT (administrators also hold ROLE_USER)
  *                      /api/admin/** requires ADMIN
  *  - All others:       require any authenticated user
  */
@@ -142,12 +142,12 @@ public class SecurityConfig {
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint((request, response, authException) -> {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    response.setContentType("application/json");
+                    response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"error\":\"Invalid email or password\"}");
                 })
                 .accessDeniedHandler((request, response, accessDeniedException) -> {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                    response.setContentType("application/json");
+                    response.setContentType("application/json;charset=UTF-8");
                     response.getWriter().write("{\"error\":\"Access denied: insufficient permissions\"}");
                 })
             )
@@ -171,9 +171,11 @@ public class SecurityConfig {
                 // Payment simulation endpoints (methods list is public, processing requires student role)
                 .requestMatchers(HttpMethod.GET, "/api/payments/methods").permitAll()
                 .requestMatchers("/api/payments/**").hasAnyRole("USER", "STUDENT")
+                // Meal subscriptions: any signed-in customer (administrators also hold ROLE_USER)
+                .requestMatchers("/api/subscriptions/**").hasAnyRole("USER", "STUDENT")
                 // Admin: product management, admin orders, dashboard overview
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                // Protected: student order checkout & history (admins cannot place orders as students)
+                // Ordering: any customer. Administrators also hold ROLE_USER, so they can order for themselves.
                 .requestMatchers(HttpMethod.POST, "/api/orders").hasAnyRole("USER", "STUDENT")
                 .requestMatchers("/api/orders/user/**").hasAnyRole("USER", "STUDENT")
                 .requestMatchers(HttpMethod.PUT, "/api/orders/*/cancel").hasAnyRole("USER", "STUDENT", "ADMIN")

@@ -1,8 +1,12 @@
 package com.mealsync.config;
 
 import com.mealsync.model.Meal;
+import com.mealsync.model.SubscriptionPlan;
+import com.mealsync.model.PickupSlot;
 import com.mealsync.model.User;
 import com.mealsync.repository.MealRepository;
+import com.mealsync.repository.SubscriptionPlanRepository;
+import com.mealsync.repository.PickupSlotRepository;
 import com.mealsync.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,6 +23,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 
 @Component
 public class DataSeeder implements CommandLineRunner {
@@ -28,6 +33,12 @@ public class DataSeeder implements CommandLineRunner {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private SubscriptionPlanRepository planRepository;
+
+    @Autowired
+    private PickupSlotRepository slotRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -101,50 +112,35 @@ public class DataSeeder implements CommandLineRunner {
         seedMealIfAbsent("South Indian Thali", "Sambar, Rasam, Kootu, 2 Poori, Rice, Curd & Appalam", "thali", 95.0, 45, true, "🍱");
         seedMealIfAbsent("Mini Meal Thali", "Dal Khichdi or Rajma Rice with Curd & Papad", "thali", 55.0, 60, true, "🍲");
 
-        // ── Snacks & Street Food ───────────────────────────────────────────────────
-        seedMealIfAbsent("Vada Pav", "Mumbai's favorite spiced potato patty in a soft bun with dry garlic chutney", "snacks", 20.0, 100, true, "🍔");
-        seedMealIfAbsent("Samosa (2 pcs)", "Crispy golden pastry stuffed with spiced potato & peas served with mint & imli chutney", "snacks", 30.0, 90, true, "🥟");
-        seedMealIfAbsent("Misal Pav", "Spicy sprouted moth bean curry topped with farsan, onions & 2 butter pavs", "snacks", 55.0, 60, true, "🍲");
-        seedMealIfAbsent("Pav Bhaji", "Mashed spiced vegetable curry with generous butter served with 2 toasted pavs", "snacks", 75.0, 50, true, "🥘");
-        seedMealIfAbsent("Bread Pakora", "Deep-fried bread fritter stuffed with spiced potato masala", "snacks", 25.0, 50, true, "🥪");
-        seedMealIfAbsent("Kachori (2 pcs)", "Flaky crispy round snack filled with spiced lentils served with sweet tamarind chutney", "snacks", 30.0, 50, true, "🥟");
-        seedMealIfAbsent("Dhokla (4 pcs)", "Steamed savory fermented gram flour cakes tempered with mustard seeds & green chilies", "snacks", 35.0, 60, true, "🟡");
-        seedMealIfAbsent("Veg Frankie", "Warm flatbread rolled with spiced crunchy vegetables, onions & tangy spices", "snacks", 50.0, 55, true, "🌯");
-        seedMealIfAbsent("Paneer Roll", "Grilled paneer cubes marinated in tikka spices wrapped in a crisp paratha", "snacks", 75.0, 40, true, "🌯");
-        seedMealIfAbsent("Veg Sandwich", "Fresh cucumber, tomato, potato, green chutney, and spiced butter in sandwich bread", "snacks", 35.0, 50, true, "🥪");
-        seedMealIfAbsent("Grilled Cheese Sandwich", "Golden grilled sandwich loaded with gooey melted cheese, capsicum & herbs", "snacks", 65.0, 45, true, "🥪");
-        seedMealIfAbsent("Veg Burger", "Crispy vegetable patty with lettuce, tomatoes, creamy mayo in a toasted sesame bun", "snacks", 60.0, 40, true, "🍔");
-        seedMealIfAbsent("French Fries", "Crispy golden salted potato fries served with ketchup & spiced dip", "snacks", 55.0, 50, true, "🍟");
-        seedMealIfAbsent("Classic Maggi", "Classic 2-minute masala noodles with green peas, carrots & aromatic masala", "snacks", 40.0, 70, true, "🍜");
-        seedMealIfAbsent("Cheese Burst Maggi", "Masala Maggi loaded with molten mozzarella and processed cheese", "snacks", 60.0, 45, true, "🧀");
+        // ── Other-dishes counter: the mess's printed menu (see MessMenu) ────────────
+        // Earlier demo dishes are no longer seeded; existing rows stay (order history refers to them).
+        for (MessMenu.Dish dish : MessMenu.OTHER_DISHES) {
+            seedMealIfAbsent(dish.name(), null, dish.category(), dish.price(), MessMenu.DEFAULT_STOCK, true, null);
+        }
+        List<Meal> reconciled = MessMenu.reconcileLegacy(mealRepository.findAll());
+        if (!reconciled.isEmpty()) {
+            mealRepository.saveAll(reconciled);
+            logger.info("Menu update: {} earlier demo dishes reconciled with the printed menu (retired or repriced).", reconciled.size());
+        }
 
-        // ── Breakfast & South Indian ───────────────────────────────────────────────
-        seedMealIfAbsent("Poha", "Flattened rice tempered with mustard seeds, roasted peanuts, turmeric, onions & fresh coriander", "south-indian", 30.0, 75, true, "🍚");
-        seedMealIfAbsent("Upma", "Savory semolina porridge tempered with ginger, mustard, curry leaves & roasted cashews", "south-indian", 30.0, 50, true, "🥣");
-        seedMealIfAbsent("Idli Sambar (2 pcs)", "Steamed soft fluffy rice cakes served with hot vegetable sambar & coconut chutney", "south-indian", 40.0, 80, true, "⚪");
-        seedMealIfAbsent("Medu Vada (2 pcs)", "Crispy golden lentil donuts served with piping hot sambar & fresh coconut chutney", "south-indian", 45.0, 60, true, "🍩");
-        seedMealIfAbsent("Plain Dosa", "Crispy thin fermented crepe made of rice & lentils served with sambar & chutneys", "south-indian", 45.0, 50, true, "🥞");
-        seedMealIfAbsent("Masala Dosa", "Crispy crepe stuffed with savory spiced potato masala served with sambar & chutney", "south-indian", 75.0, 60, true, "🥞");
-        seedMealIfAbsent("Onion Uttapam", "Thick savory rice pancake topped with finely chopped onions, tomatoes & green chilies", "south-indian", 65.0, 40, true, "🍳");
+        // ── Subscription plan catalogue ────────────────────────────────────────────
+        // Names, prices, meals and days match the plans already shown in the UI. Meal counts
+        // for the last three are derived from their serving days (Mon–Sat ≈ 26, 2 × 22, 3 × 30).
+        seedPlanIfAbsent("MONTHLY_LUNCH", "Monthly Lunch", "Weekday lunch", "Lunch", "1-5", 22, 1200.0);
+        seedPlanIfAbsent("MONTHLY_DINNER", "Monthly Dinner", "Weekday dinner", "Dinner", "1-5", 22, 1400.0);
+        seedPlanIfAbsent("BREAKFAST_ONLY", "Breakfast Only", "Daily morning breakfast", "Breakfast", "1-6", 26, 800.0);
+        seedPlanIfAbsent("LUNCH_DINNER", "Lunch + Dinner", "Both meals, best value", "Lunch + Dinner", "1-5", 44, 2400.0);
+        seedPlanIfAbsent("FULL_BOARD", "Full Board", "All three meals daily", "Breakfast + Lunch + Dinner", "1-7", 90, 3200.0);
 
-        // ── Meals & Rice Bowls ─────────────────────────────────────────────────────
-        seedMealIfAbsent("Rajma Rice Bowl", "Slow-cooked Kashmiri red kidney beans in thick gravy over fragrant basmati rice", "meals", 75.0, 50, true, "🍛");
-        seedMealIfAbsent("Chole Rice Bowl", "Spicy Punjabi chickpeas simmered in aromatic gravy served over warm steamed rice", "meals", 70.0, 50, true, "🍛");
-        seedMealIfAbsent("Dal Khichdi", "Homestyle comforting rice and moong dal tempered with cumin, garlic & desi ghee", "meals", 60.0, 45, true, "🍲");
-        seedMealIfAbsent("Veg Pulao", "Aromatic basmati rice cooked with fresh seasonal vegetables, bay leaf & mild spices", "meals", 75.0, 40, true, "🍚");
-        seedMealIfAbsent("Veg Dum Biryani", "Layered basmati rice with marinated vegetables and whole spices, served with raita", "meals", 95.0, 50, true, "🥘");
-        seedMealIfAbsent("Paneer Butter Masala", "Soft cottage cheese cubes in rich tomato, butter, and cashew nut gravy", "meals", 130.0, 35, true, "🍛");
-        seedMealIfAbsent("Curd Rice", "Tempered southern curd rice with mustard, ginger, curry leaves, and pomegranate", "meals", 45.0, 40, true, "🥣");
-        seedMealIfAbsent("Steamed Rice", "Fluffy steamed long grain basmati rice", "meals", 25.0, 60, true, "🍚");
-
-        // ── Beverages & Refreshers ─────────────────────────────────────────────────
-        seedMealIfAbsent("Masala Chai", "Freshly brewed Indian tea with ginger, cardamom, clove, and milk", "beverages", 15.0, 150, true, "☕");
-        seedMealIfAbsent("Filter Coffee", "Authentic South Indian chicory-blend frothed milk coffee", "beverages", 25.0, 90, true, "☕");
-        seedMealIfAbsent("Cold Coffee", "Chilled thick blended coffee with vanilla ice cream drizzle", "beverages", 45.0, 80, true, "🥤");
-        seedMealIfAbsent("Spiced Buttermilk (Chaas)", "Cooling churned yogurt drink with roasted cumin, mint, and black salt", "beverages", 20.0, 100, true, "🥛");
-        seedMealIfAbsent("Fresh Lime Soda", "Fizzy club soda with fresh lime juice, black salt, and sugar syrup", "beverages", 30.0, 60, true, "🍹");
-        seedMealIfAbsent("Mango Lassi", "Rich, sweet yogurt smoothie infused with alphonso mango pulp", "beverages", 45.0, 50, true, "🥭");
-        seedMealIfAbsent("Gulab Jamun (2 pcs)", "Warm melt-in-mouth milk-solid dumplings soaked in rose-cardamom sugar syrup", "snacks", 30.0, 70, true, "🍮");
+        // ── Pickup slots (same windows the UI used to hard-code; capacity enforced server-side) ──
+        seedSlotIfAbsent("7:30 – 7:45", "breakfast", "07:30", "07:45", 40);
+        seedSlotIfAbsent("7:45 – 8:00", "breakfast", "07:45", "08:00", 40);
+        seedSlotIfAbsent("12:30 – 12:45", "lunch", "12:30", "12:45", 50);
+        seedSlotIfAbsent("12:45 – 1:00", "lunch", "12:45", "13:00", 50);
+        seedSlotIfAbsent("1:00 – 1:15", "lunch", "13:00", "13:15", 50);
+        seedSlotIfAbsent("1:15 – 1:30", "lunch", "13:15", "13:30", 50);
+        seedSlotIfAbsent("7:30 – 7:45 PM", "dinner", "19:30", "19:45", 50);
+        seedSlotIfAbsent("7:45 – 8:00 PM", "dinner", "19:45", "20:00", 50);
 
         // ── Demo Users (explicit opt-in only; passwords come from the environment) ──
         if (seedDemoUsers) {
@@ -192,6 +188,35 @@ public class DataSeeder implements CommandLineRunner {
             if (modified) {
                 userRepository.save(user);
             }
+        }
+    }
+
+    private void seedSlotIfAbsent(String label, String period, String start, String end, int capacity) {
+        if (!slotRepository.existsByLabel(label)) {
+            PickupSlot slot = new PickupSlot();
+            slot.setLabel(label);
+            slot.setMealPeriod(period);
+            slot.setStartTime(java.time.LocalTime.parse(start));
+            slot.setEndTime(java.time.LocalTime.parse(end));
+            slot.setCapacity(capacity);
+            slot.setActive(true);
+            slotRepository.save(slot);
+        }
+    }
+
+    private void seedPlanIfAbsent(String code, String name, String description, String meals,
+                                  String servingDays, int mealsPerPeriod, double monthlyPrice) {
+        if (!planRepository.existsByCode(code)) {
+            SubscriptionPlan plan = new SubscriptionPlan();
+            plan.setCode(code);
+            plan.setName(name);
+            plan.setDescription(description);
+            plan.setMeals(meals);
+            plan.setServingDays(servingDays);
+            plan.setMealsPerPeriod(mealsPerPeriod);
+            plan.setMonthlyPrice(monthlyPrice);
+            plan.setActive(true);
+            planRepository.save(plan);
         }
     }
 

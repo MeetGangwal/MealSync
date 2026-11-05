@@ -15,6 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
+import com.mealsync.service.ReportingService;
+import java.time.Clock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +43,10 @@ class AdminControllerTest {
 
     @Mock
     private com.mealsync.service.PaymentService paymentService;
+
+    /** Real reporting logic; server and business time zone are the same in this unit test. */
+    @Spy
+    private ReportingService reporting = new ReportingService(Clock.systemDefaultZone());
 
     @InjectMocks
     private AdminController adminController;
@@ -199,10 +206,12 @@ class AdminControllerTest {
     }
 
     @Test
-    @DisplayName("Admin: cancelling order restores meal stock")
+    @DisplayName("Admin: cancelling order restores meal stock (row-locked) and marks the payment refunded")
     void updateOrderStatus_cancellationRestoresStock() {
+        sampleOrder.setPaymentStatus("PAID");
         when(orderRepository.findById(100L)).thenReturn(Optional.of(sampleOrder));
         when(orderRepository.save(any(Order.class))).thenReturn(sampleOrder);
+        when(mealRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(sampleMeal));
 
         int initialStock = sampleMeal.getAvailableQuantity(); // 50
         OrderStatusRequest req = new OrderStatusRequest("CANCELLED");
@@ -213,14 +222,58 @@ class AdminControllerTest {
         // item quantity is 2, so stock should be restored by 2
         assertThat(sampleMeal.getAvailableQuantity()).isEqualTo(initialStock + 2);
         verify(mealRepository).save(sampleMeal);
+        // A paid order that is cancelled is refunded, so it no longer counts as collected revenue
+        assertThat(sampleOrder.getPaymentStatus()).isEqualTo("REFUNDED");
+    }
+
+    @Test
+    @DisplayName("Admin: cancelling an unpaid cash order marks the payment cancelled (not refunded)")
+    void updateOrderStatus_cancelUnpaid() {
+        sampleOrder.setPaymentStatus("PENDING_CASH");
+        when(orderRepository.findById(100L)).thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenReturn(sampleOrder);
+        when(mealRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(sampleMeal));
+
+        adminController.updateOrderStatus(100L, new OrderStatusRequest("CANCELLED"));
+
+        assertThat(sampleOrder.getPaymentStatus()).isEqualTo("CANCELLED");
+    }
+
+    @Test
+    @DisplayName("Admin: completing a cash-on-pickup order records the cash as received (PAID)")
+    void updateOrderStatus_completeSettlesCash() {
+        sampleOrder.setStatus("READY");
+        sampleOrder.setPaymentStatus("PENDING_CASH");
+        when(orderRepository.findById(100L)).thenReturn(Optional.of(sampleOrder));
+        when(orderRepository.save(any(Order.class))).thenReturn(sampleOrder);
+
+        adminController.updateOrderStatus(100L, new OrderStatusRequest("COMPLETED"));
+
+        assertThat(sampleOrder.getPaymentStatus()).isEqualTo("PAID");
     }
 
     // ── Overview Summary Tests ────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Admin: overview returns aggregate statistics")
+    @DisplayName("Admin: overview counts only collected (PAID, not cancelled) money as today's revenue")
     void getOverview_returnsAccurateStats() {
-        when(orderRepository.findAllByOrderByOrderTimeDesc()).thenReturn(List.of(sampleOrder));
+        sampleOrder.setPaymentStatus("PAID");
+        Order cashPending = new Order();
+        cashPending.setStatus("CONFIRMED");
+        cashPending.setPaymentStatus("PENDING_CASH");
+        cashPending.setTotalAmount(80.0);
+        cashPending.setOrderTime(LocalDateTime.now());
+        Order refunded = new Order();
+        refunded.setStatus("CANCELLED");
+        refunded.setPaymentStatus("REFUNDED");
+        refunded.setTotalAmount(500.0);
+        refunded.setOrderTime(LocalDateTime.now());
+        Order yesterday = new Order();
+        yesterday.setStatus("COMPLETED");
+        yesterday.setPaymentStatus("PAID");
+        yesterday.setTotalAmount(999.0);
+        yesterday.setOrderTime(LocalDateTime.now().minusDays(1));
+        when(orderRepository.findAllByOrderByOrderTimeDesc()).thenReturn(List.of(sampleOrder, cashPending, refunded, yesterday));
         when(mealRepository.findAll()).thenReturn(List.of(sampleMeal));
 
         ResponseEntity<AdminOverviewResponse> resp = adminController.getOverview();
@@ -228,10 +281,12 @@ class AdminControllerTest {
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         AdminOverviewResponse overview = resp.getBody();
         assertThat(overview).isNotNull();
-        assertThat(overview.getTotalOrders()).isEqualTo(1);
-        assertThat(overview.getTodayOrders()).isEqualTo(1);
-        assertThat(overview.getTodaySales()).isEqualTo(120.0);
-        assertThat(overview.getPendingOrders()).isEqualTo(1); // CONFIRMED is pending
+        assertThat(overview.getTotalOrders()).isEqualTo(4);
+        assertThat(overview.getTodayOrders()).isEqualTo(2);      // cancelled order not counted
+        assertThat(overview.getTodaySales()).isEqualTo(120.0);   // pending cash and refund excluded
+        assertThat(overview.getTodaySummary().pendingAmount()).isEqualTo(80.0);
+        assertThat(overview.getTodaySummary().refundedAmount()).isEqualTo(500.0);
+        assertThat(overview.getPendingOrders()).isEqualTo(2); // two CONFIRMED orders are active
         assertThat(overview.getAvailableProducts()).isEqualTo(1);
         assertThat(overview.getSoldOutProducts()).isEqualTo(0);
     }
@@ -300,41 +355,5 @@ class AdminControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         verify(orderRepository, never()).save(any());
-    }
-
-    // ── Payment Records Tests (Priority 4) ────────────────────────────────────
-
-    @Test
-    @DisplayName("Admin: getPaymentRecords filters by source and search query")
-    void getPaymentRecords_filtersCorrectly() {
-        Order counterOrder = new Order();
-        counterOrder.setId(301L);
-        counterOrder.setOrderNumber("MS-CTR-12345");
-        counterOrder.setOrderSource("COUNTER");
-        counterOrder.setCustomerName("Rahul Sharma");
-        counterOrder.setPaymentMethod("UPI");
-        counterOrder.setPaymentStatus("PAID");
-        counterOrder.setTotalAmount(150.0);
-
-        Order portalOrder = new Order();
-        portalOrder.setId(302L);
-        portalOrder.setOrderNumber("MS10999");
-        portalOrder.setOrderSource("PORTAL");
-        portalOrder.setCustomerName("Aryan Student");
-        portalOrder.setPaymentMethod("CARD");
-        portalOrder.setPaymentStatus("PAID");
-        portalOrder.setTotalAmount(200.0);
-
-        when(orderRepository.findAllByOrderByOrderTimeDesc()).thenReturn(List.of(counterOrder, portalOrder));
-
-        // Filter by source = COUNTER
-        ResponseEntity<List<Order>> respCounter = adminController.getPaymentRecords(null, "COUNTER", null, null);
-        assertThat(respCounter.getBody()).hasSize(1);
-        assertThat(respCounter.getBody().get(0).getOrderNumber()).isEqualTo("MS-CTR-12345");
-
-        // Filter by search = Aryan
-        ResponseEntity<List<Order>> respSearch = adminController.getPaymentRecords("Aryan", null, null, null);
-        assertThat(respSearch.getBody()).hasSize(1);
-        assertThat(respSearch.getBody().get(0).getCustomerName()).isEqualTo("Aryan Student");
     }
 }

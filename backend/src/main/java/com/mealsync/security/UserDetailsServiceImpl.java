@@ -36,24 +36,16 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException(
                         "User not found with email: " + email));
 
-        // Safely normalize role (e.g. "student", "ROLE_USER", "admin") to GrantedAuthority
-        String rawRole = user.getRole();
-        String normalizedRole = "ROLE_USER";
-        if (rawRole != null && !rawRole.isBlank()) {
-            String trimmed = rawRole.trim();
-            if (trimmed.startsWith("ROLE_")) {
-                normalizedRole = trimmed.toUpperCase();
-            } else {
-                normalizedRole = "ROLE_" + trimmed.toUpperCase();
-            }
-        }
-
-        SimpleGrantedAuthority authority = new SimpleGrantedAuthority(normalizedRole);
+        // Role comes from the database on every request (not from the JWT), so role changes
+        // take effect immediately. Administrators also receive ROLE_USER (see Roles).
+        List<SimpleGrantedAuthority> authorities = Roles.authorities(user.getRole()).stream()
+                .map(SimpleGrantedAuthority::new)
+                .toList();
 
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getEmail())
                 .password(user.getPassword())     // already BCrypt-hashed
-                .authorities(List.of(authority))
+                .authorities(authorities)
                 .build();
     }
 }

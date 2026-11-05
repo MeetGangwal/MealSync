@@ -1,11 +1,14 @@
 package com.mealsync.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,4 +67,13 @@ public class Order {
 
     @CreationTimestamp
     private LocalDateTime orderTime;
+
+    /**
+     * {@link #orderTime} as an absolute instant for API clients. The column holds a zone-less time in the
+     * server's default zone (UTC in containers), which browsers would otherwise read as their local time.
+     */
+    @JsonProperty("orderTimeUtc")
+    public Instant getOrderTimeUtc() {
+        return orderTime == null ? null : orderTime.atZone(ZoneId.systemDefault()).toInstant();
+    }
 }

@@ -1,5 +1,6 @@
 package com.mealsync.controller;
 
+import com.mealsync.security.Roles;
 import com.mealsync.dto.LoginResponse;
 import com.mealsync.dto.RegisterRequest;
 import com.mealsync.model.User;
@@ -148,7 +149,7 @@ public class AuthController {
                     user.getId(),
                     user.getName(),
                     user.getEmail(),
-                    user.getRole()
+                    Roles.normalize(user.getRole())
             );
 
             return ResponseEntity.ok(body);
@@ -192,7 +193,7 @@ public class AuthController {
         resp.put("userId", user.getId());
         resp.put("name", user.getName());
         resp.put("email", user.getEmail());
-        resp.put("role", user.getRole());
+        resp.put("role", Roles.normalize(user.getRole()));
         resp.put("phone", user.getPhone() != null ? user.getPhone() : "");
         resp.put("uid", user.getUid() != null ? user.getUid() : "");
         return ResponseEntity.ok(resp);
@@ -237,7 +238,7 @@ public class AuthController {
         resp.put("userId", saved.getId());
         resp.put("name", saved.getName());
         resp.put("email", saved.getEmail());
-        resp.put("role", saved.getRole());
+        resp.put("role", Roles.normalize(saved.getRole()));
         resp.put("phone", saved.getPhone() != null ? saved.getPhone() : "");
         resp.put("uid", saved.getUid() != null ? saved.getUid() : "");
         return ResponseEntity.ok(resp);

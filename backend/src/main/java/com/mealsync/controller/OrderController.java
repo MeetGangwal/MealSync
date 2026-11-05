@@ -1,5 +1,6 @@
 package com.mealsync.controller;
 
+import com.mealsync.security.Roles;
 import com.mealsync.dto.OrderItemRequest;
 import com.mealsync.dto.OrderRequest;
 import com.mealsync.dto.OrderResponse;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -64,6 +66,9 @@ public class OrderController {
 
     @Autowired
     private com.mealsync.service.PaymentService paymentService;
+
+    @Autowired
+    private com.mealsync.service.PickupSlotService pickupSlotService;
 
     // -----------------------------------------------------------------------
     // GET /api/orders/user/{userId}  — Customer's own order history
@@ -123,11 +128,8 @@ public class OrderController {
                     .body(Map.of("error", "Not authenticated"));
         }
 
-        // Strict role separation: Admins cannot place meal orders
-        if (authUser.getRole() != null && authUser.getRole().toUpperCase().contains("ADMIN")) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Administrators cannot place meal orders. Only students are permitted to checkout."));
-        }
+        // Administrators may also order food for themselves (they hold ROLE_USER as well);
+        // the order is always attached to the authenticated principal.
 
         // Idempotency verification: prevent duplicate orders from double-click or network retry
         if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().trim().isEmpty()) {
@@ -159,6 +161,13 @@ public class OrderController {
                     .body(Map.of("error", "Pickup slot is required"));
         }
 
+        // Capacity check under a row lock on the slot (held until this transaction commits)
+        try {
+            pickupSlotService.reserve(request.getPickupSlot().trim());
+        } catch (com.mealsync.service.PickupSlotService.SlotUnavailableException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+        }
+
         // Build the order
         Order order = new Order();
         order.setUser(authUser);  // always the JWT principal — never from request body
@@ -175,14 +184,17 @@ public class OrderController {
         for (OrderItemRequest itemReq : request.getItems()) {
             // Validate item request
             if (itemReq.getMenuItemId() == null) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Each item must specify a menuItemId"));
             }
             if (itemReq.getQty() == null || itemReq.getQty() < 1) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Quantity must be at least 1 for item " + itemReq.getMenuItemId()));
             }
             if (itemReq.getQty() > 20) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Quantity cannot exceed 20 per item"));
             }
@@ -190,14 +202,17 @@ public class OrderController {
             // Load meal with pessimistic write lock (SELECT ... FOR UPDATE) to prevent concurrency anomalies
             Meal meal = mealRepository.findByIdForUpdate(itemReq.getMenuItemId()).orElse(null);
             if (meal == null) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Meal not found: " + itemReq.getMenuItemId()));
             }
             if (!Boolean.TRUE.equals(meal.getIsAvailable())) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Meal is currently unavailable: " + meal.getName()));
             }
             if (meal.getAvailableQuantity() == null || meal.getAvailableQuantity() < itemReq.getQty()) {
+                markRollbackOnly(); // undo stock changes of earlier items
                 return ResponseEntity.status(HttpStatus.CONFLICT)
                         .body(Map.of("error", "Insufficient stock for: " + meal.getName()
                                 + " (requested: " + itemReq.getQty()
@@ -210,6 +225,7 @@ public class OrderController {
             orderItem.setMeal(meal);
             orderItem.setQuantity(itemReq.getQty());
             orderItem.setPriceAtTimeOfOrder(meal.getPrice()); // server-side price snapshot
+            orderItem.setItemName(meal.getName());             // historical name snapshot
             order.getItems().add(orderItem);
 
             // Compute total from DB prices — client total is ignored
@@ -287,8 +303,10 @@ public class OrderController {
                     .body(Map.of("error", "Order not found with id: " + id));
         }
 
-        boolean isAdmin = authUser.getRole() != null && authUser.getRole().contains("ADMIN");
-        if (!order.getUser().getId().equals(authUser.getId()) && !isAdmin) {
+        boolean isAdmin = Roles.isAdmin(authUser.getRole());
+        // Walk-in counter orders have no user; only administrators may cancel those.
+        boolean isOwner = order.getUser() != null && order.getUser().getId().equals(authUser.getId());
+        if (!isOwner && !isAdmin) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Access denied"));
         }
@@ -353,5 +371,12 @@ public class OrderController {
         if (authentication == null || !authentication.isAuthenticated()) return null;
         String email = authentication.getName();
         return userRepository.findByEmail(email).orElse(null);
+    }
+
+    /** Rolls back stock already changed for earlier items when a later item is rejected. */
+    private static void markRollbackOnly() {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+        }
     }
 }

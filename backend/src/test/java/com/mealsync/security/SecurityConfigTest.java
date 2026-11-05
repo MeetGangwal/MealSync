@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         OrderController.class,
         AdminController.class
 })
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, com.mealsync.service.ReportingService.class, com.mealsync.config.TimeConfig.class})
 class SecurityConfigTest {
 
     @Autowired
@@ -63,6 +63,9 @@ class SecurityConfigTest {
 
     @MockBean
     private com.mealsync.service.PaymentService paymentService;
+
+    @MockBean
+    private com.mealsync.service.PickupSlotService pickupSlotService;
 
     @MockBean
     private AuthenticationManager authenticationManager;

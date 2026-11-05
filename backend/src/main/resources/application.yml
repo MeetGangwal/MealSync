@@ -48,6 +48,11 @@ jwt:
   expirationMs: ${JWT_EXPIRATION_MS:86400000}
 
 mealsync:
+  # Business time zone for "today" (subscription periods, skip today)
+  time-zone: ${MEALSYNC_TIME_ZONE:Asia/Kolkata}
+  bootstrap:
+    # Promotes an ALREADY REGISTERED account to administrator at start-up (operator-controlled).
+    admin-email: ${MEALSYNC_BOOTSTRAP_ADMIN_EMAIL:}
   seed:
     # Demo accounts are created only on explicit opt-in (MEALSYNC_SEED_DEMO_USERS=true),
     # using passwords supplied through MEALSYNC_DEMO_STUDENT_PASSWORD / MEALSYNC_DEMO_ADMIN_PASSWORD.
