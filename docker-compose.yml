@@ -26,7 +26,6 @@ services:
   db:
     image: mysql:8.4
     container_name: mealsync-db
-    cgroup_parent: /mealsync/db   # names this service in cAdvisor metrics
     restart: unless-stopped
     command:
       - "--character-set-server=utf8mb4"
@@ -55,7 +54,6 @@ services:
       dockerfile: Dockerfile
     image: mealsync-backend:${IMAGE_TAG:-local}
     container_name: mealsync-backend
-    cgroup_parent: /mealsync/backend   # names this service in cAdvisor metrics
     restart: unless-stopped
     depends_on:
       db:
@@ -99,7 +97,6 @@ services:
       dockerfile: Dockerfile
     image: mealsync-frontend:${IMAGE_TAG:-local}
     container_name: mealsync-frontend
-    cgroup_parent: /mealsync/frontend   # names this service in cAdvisor metrics
     restart: unless-stopped
     depends_on:
       backend:
@@ -119,7 +116,6 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: mealsync-prometheus
-    cgroup_parent: /mealsync/prometheus   # names this service in cAdvisor metrics
     restart: unless-stopped
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -141,9 +137,6 @@ services:
       retries: 3
 
   # ── cAdvisor (container metrics) ─────────────────────────────────────────
-  # Reads per-service cgroups (/mealsync/<service>, set via cgroup_parent) directly.
-  # The Docker socket is not mounted: cAdvisor's Docker integration cannot read
-  # Docker Desktop's containerd image store, and raw cgroups need no Docker access.
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.52.1
     container_name: mealsync-cadvisor
@@ -152,7 +145,6 @@ services:
       - no-new-privileges:true
     command:
       - "--docker_only=false"
-      - "--raw_cgroup_prefix_whitelist=/mealsync/"
       - "--housekeeping_interval=10s"
     volumes:
       - /:/rootfs:ro
@@ -166,7 +158,6 @@ services:
   grafana:
     image: grafana/grafana:11.1.0
     container_name: mealsync-grafana
-    cgroup_parent: /mealsync/grafana   # names this service in cAdvisor metrics
     restart: unless-stopped
     depends_on:
       - prometheus
